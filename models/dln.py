@@ -2,12 +2,10 @@ import torch
 import torch.nn as nn
 from torch_geometric.nn import MessagePassing
 from torch_geometric.utils import degree, add_self_loops, to_torch_coo_tensor # add_self_loops might not be needed directly here
-from torch_scatter import scatter_add # Used internally by MessagePassing with aggr='add'
+from torch_scatter import scatter_add, scatter # Used internally by MessagePassing with aggr='add'
 import torch.nn.functional as F
 from torch_geometric.utils import to_dense_adj
 from torch_geometric.nn import BatchNorm
-
-
 # from torch_geometric.nn import global_mean_pool, BatchNorm, global_add_pool
 
 # from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
@@ -37,8 +35,8 @@ class InjectiveGNNLayer(MessagePassing):
         self.linear = nn.Linear(in_features=hidden_dim, out_features=hidden_dim)
         # set std of W
         self.adj_matrix = to_dense_adj(edge_index).squeeze(0) 
-        norm = self.spectral_norm(self.adj_matrix)
-        std = 1.0 / (1 + epsilon + norm) 
+        norm = self.spectral_norm(edge_index)
+        std = (1.0 / (1 + epsilon + norm))
         nn.init.normal_(self.linear.weight, mean=0.0, std=std)
 
         self.lift = lift
@@ -78,44 +76,64 @@ class InjectiveGNNLayer(MessagePassing):
     """
     A: Adj matrix
     """
-    def spectral_norm(self, A):
-        return torch.linalg.norm(A, ord=2)
+    # def spectral_norm(self, A):
+    #     return torch.linalg.norm(A, ord=2)
+    def spectral_norm(self, edge_index):
+        adj = to_dense_adj(edge_index).squeeze(0)
+        U, S, V = torch.svd_lowrank(adj, q=1)
+        return S[0].item()**0.5
 
 
-    def forward(self, x: torch.Tensor, edge_index: torch.Tensor, edge_weight: torch.Tensor = None) -> torch.Tensor:
-        """
-        Forward pass of the custom GNN layer.
+    def forward(self, x, edge_index):
+        hw = self.linear(x)
+        sig_hw = F.relu(hw) 
+        sig_hw = sig_hw / x.size(1)**0.5
+        row, col = edge_index
+        neighbor = scatter(sig_hw[row], col, dim=0, dim_size=x.size(0), reduce='sum')
+        identity = (1 + self.epsilon) * sig_hw
+        
+        return neighbor + identity
 
-        Args:
-            x (torch.Tensor): Node feature matrix of shape [num_nodes, num_node_features].
-            edge_index (torch.Tensor): Graph connectivity in COO format with shape [2, num_edges].
-            edge_weight (torch.Tensor, optional): Edge weights corresponding to edge_index,
-                                                 shape [num_edges]. If None, edges are assumed
-                                                 to have weight 1. Defaults to None.
+    # def forward(self, x: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
+    #     """
+    #     Forward pass of the custom GNN layer.
 
-        Returns:
-            torch.Tensor: Output node features of shape [num_nodes, num_node_features].
-        """            
-        num_nodes = x.size(0)
-        h = x
+    #     Args:
+    #         x (torch.Tensor): Node feature matrix of shape [num_nodes, num_node_features].
+    #         edge_index (torch.Tensor): Graph connectivity in COO format with shape [2, num_edges].
+    #     Returns:
+    #         torch.Tensor: Output node features of shape [num_nodes, num_node_features].
+    #     """            
+    #     num_nodes = x.size(0)
+    #     h = x
 
-        if self.lift_first:
-            h = self.lift_operation(h)
-            efficients = (1.0 + self.epsilon) * torch.eye(num_nodes) + self.adj_matrix
-            h = efficients @ h
-            return h
+    #     # if self.lift_first:
+    #         # h = self.lift_operation(h)
+    #         # efficients = (1.0 + self.epsilon) * torch.eye(num_nodes) + self.adj_matrix
+    #         # h = efficients @ h
+    #         # return h
+    #     h = self.linear(h)
+    #     h = F.relu(h)
+    #     # h = h * torch.tensor(self.m).pow(-0.5)
+    #     h = h * torch.tensor(x.size(1)).pow(-0.5)
+    #     row, col = edge_index
+    #     neighbor = scatter(h[row], col, dim=0, dim_size=x.size(0), reduce="sum")
+    #     identity = (1+self.epsilon) * h
+    #     return neighbor + identity
 
+    #     # row, col = edge_index
+    #     # neighbor = scatter(h[row], col, dim=0, dim_size=x.size(0), reduce="sum")
+    #     # identity = (1+self.epsilon) * h
 
+    #     # 1. Calculate: (1 + epsilon) * I + A
+    #     # efficients = (1.0 + self.epsilon) * torch.eye(num_nodes) + self.adj_matrix
+    #     # h = efficients @ h
 
-        # 1. Calculate: (1 + epsilon) * I + A
-        efficients = (1.0 + self.epsilon) * torch.eye(num_nodes) + self.adj_matrix
-        h = efficients @ h
+    #     # # do the lift operation if required by input parameters
+    #     # if self.lift:
+    #     # h = self.lift_operation(h)
 
-        # do the lift operation if required by input parameters
-        if self.lift:
-            h = self.lift_operation(h)
-
-        return h
+    #     return h
 
     # def message(self, x_j: torch.Tensor, norm: torch.Tensor) -> torch.Tensor:
     #     """
@@ -244,7 +262,7 @@ class DecoupleModel(nn.Module):
         # h = torch.relu(h)
 
         for i, injective_layer in enumerate(self.layers):
-            h = injective_layer(h, edge_index, edge_weight=edge_weight)
+            h = injective_layer(h, edge_index)
 
         # map to feature learning
         h = self.linear2(h)

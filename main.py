@@ -66,11 +66,11 @@ def evaluate(model, train_split_idx, validation_split_idx, test_split_idx):
 # hardcoded value goes here!!!!
 dataset_name = 'Cora'
 num_layers = 3
-num_linear_layers = 0 # number of mlp layer
+num_linear_layers = 1 # number of mlp layer
 mp_hidden_dim = 512
 fl_hidden_dim = 512
-epsilon = math.pi
-optimizer_lr = 0.001
+epsilon = 5**0.5/2
+optimizer_lr = 0.01
 # weight_decay=5e-4
 loss_func = 'CrossEntropyLoss'
 total_epoch = 1000
@@ -102,10 +102,10 @@ c = max(data.y.max().item() + 1, data.y.shape[0])
 # 先suan distinct klog(k)
 # random search
 # distinct local structure
-initial_num_distinct_features = torch.unique(data.x, dim=0).float().size(0)
-print('initial_num_distinct_features: ', initial_num_distinct_features)
-rank_of_distinct_matrix = torch.linalg.matrix_rank(torch.unique(data.x, dim=0), tol=1e-5)
-print('initial rank of distinct matrix: ', rank_of_distinct_matrix.item())
+# initial_num_distinct_features = torch.unique(data.x, dim=0).float().size(0)
+# print('initial_num_distinct_features: ', initial_num_distinct_features)
+# rank_of_distinct_matrix = torch.linalg.matrix_rank(torch.unique(data.x, dim=0), tol=1e-5)
+# print('initial rank of distinct matrix: ', rank_of_distinct_matrix.item())
 
 model = DecoupleModel (
     edge_index=data.edge_index,
@@ -127,7 +127,7 @@ train_idx = torch.where(data.train_mask)[0]
 valid_idx = torch.where(data.val_mask)[0]
 test_idx = torch.where(data.test_mask)[0]
 
-optimizer = torch.optim.SGD(model.parameters(), lr=optimizer_lr)
+optimizer = torch.optim.Adam(model.parameters(), lr=optimizer_lr)
 criterion = torch.nn.CrossEntropyLoss()
 if loss_func == 'CrossEntropyLoss':
     criterion = torch.nn.CrossEntropyLoss()
@@ -161,10 +161,10 @@ valid_accuracy_list = []
 test_accuracy_list = []
 
 for epoch in tqdm(range(1,total_epoch)):
-    if epoch < warm_up_epoch_num:
-        model.turn_on_training()
-    else:
-        model.turn_off_training()
+    # if epoch < warm_up_epoch_num:
+    #     model.turn_on_training()
+    # else:
+    #     model.turn_off_training()
     loss = train()
     loss_list.append(loss)
     train_acc, valid_acc, test_acc = evaluate(model, train_idx, valid_idx, test_idx)
