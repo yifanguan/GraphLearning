@@ -10,7 +10,12 @@ from torch_geometric.nn import BatchNorm
 
 # from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
 
-class InjectiveGNNLayer(MessagePassing):
+def deg_vec(edge_index):
+    adj = to_dense_adj(edge_index)[0]
+    deg = adj.sum(dim=1)
+    return deg
+
+class InjectiveMP(MessagePassing):
     """
     An injective layer with normalization to prevent large magnitude.
     I is the identity matrix, H is the node feature matrix, and epsilon is a irrational scalar used to distinguish node itself from its neighbors.
@@ -18,142 +23,70 @@ class InjectiveGNNLayer(MessagePassing):
     No skip connection, no batch normalization, no dropout should be used
     We assume all MPs have the same width m
     """
-    def __init__(self, edge_index: torch.Tensor, epsilon: float, input_dim: int = -1,
-                 hidden_dim: int = 300, lift: bool = True, lift_first=True):
-        """
-        Args:
-            epsilon (float): The epsilon value in the layer formula.
-            linear: if this layer models a pure linear message passing. When not pure linear, a lift operation is added.
-                    a lift operation itself is useful to make multi-layer InjectiveGNNLayer overall becomes injective. A lift operation is modeled as 
-                    a MLP.
-            lift_first: if the layer do lift first and then do message passing
-        """
+    def __init__(self,
+                 eps=2.0**0.5,
+                 in_dim: int = -1,
+                 out_dim: int = 300,
+                 act=F.relu,
+                 freeze: bool = True):
         # Initialize the MessagePassing base class with 'add' aggregation
         super().__init__(aggr='add')
+    
+        self.eps = eps
+        self.in_dim = in_dim
+        self.out_dim = out_dim
+        self.act = act
+        self.freeze = freeze
 
-        self.epsilon = float(epsilon) # Store epsilon as a float
-        self.linear = nn.Linear(in_features=hidden_dim, out_features=hidden_dim)
+        self.W = nn.Linear(in_features=in_dim, out_features=out_dim)
         # set std of W
-        self.adj_matrix = to_dense_adj(edge_index).squeeze(0) 
-        norm = self.spectral_norm(edge_index)
-        std = (1.0 / (1 + epsilon + norm))
-        nn.init.normal_(self.linear.weight, mean=0.0, std=std)
+        # self.adj_matrix = to_dense_adj(edge_index).squeeze(0) 
+        # norm = self.spectral_norm(edge_index)
+        # std = (1.0 / (1 + epsilon + norm))
+        std = 1.0
+        nn.init.normal_(self.W.weight, mean=0.0, std=std)
 
-        self.lift = lift
-        self.lift_first = lift_first
-        self.input_dim = input_dim
-        self.m = hidden_dim
-        # If this injective MP layer is used as the first layer in the training layer architecture.
-        # I.e. we use on injective message passing layer instead of a linear layer
-        if self.input_dim > 0:
-            self.linear = nn.Linear(in_features=input_dim, out_features=hidden_dim)
-        # Train-free injective message passing, so freeze the parameters of the linear layer and batch norm
-        if self.linear:
-            for param in self.linear.parameters():
+        # Train-free injective message passing, so freeze the parameters of weights
+        if self.freeze:
+            for param in self.W.parameters():
                 param.requires_grad = False
 
-    def turn_off_training(self):
-        if self.linear:
-            for param in self.linear.parameters():
-                param.requires_grad = False
+    # def turn_off_training(self):
+    #     if self.linear:
+    #         for param in self.linear.parameters():
+    #             param.requires_grad = False
             # for param in self.batch_norm.parameters():
             #     param.requires_grad = False
 
-    def turn_on_training(self):
-        if self.linear:
-            for param in self.linear.parameters():
-                param.requires_grad = True
+    # def turn_on_training(self):
+    #     if self.linear:
+    #         for param in self.linear.parameters():
+    #             param.requires_grad = True
             # for param in self.batch_norm.parameters():
             #     param.requires_grad = True
 
-    def lift_operation(self, h):
-        h = self.linear(h)
-        h = F.relu(h)
-        h = h * torch.tensor(self.m).pow(-0.5)
-
-        return h
-    
-    """
-    A: Adj matrix
-    """
-    # def spectral_norm(self, A):
-    #     return torch.linalg.norm(A, ord=2)
-    def spectral_norm(self, edge_index):
-        adj = to_dense_adj(edge_index).squeeze(0)
-        U, S, V = torch.svd_lowrank(adj, q=1)
-        return S[0].item()**0.5
-
-
-    def forward(self, x, edge_index):
-        hw = self.linear(x)
-        sig_hw = F.relu(hw) 
-        sig_hw = sig_hw / x.size(1)**0.5
-        row, col = edge_index
-        neighbor = scatter(sig_hw[row], col, dim=0, dim_size=x.size(0), reduce='sum')
-        identity = (1 + self.epsilon) * sig_hw
-        
-        return neighbor + identity
-
-    # def forward(self, x: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
-    #     """
-    #     Forward pass of the custom GNN layer.
-
-    #     Args:
-    #         x (torch.Tensor): Node feature matrix of shape [num_nodes, num_node_features].
-    #         edge_index (torch.Tensor): Graph connectivity in COO format with shape [2, num_edges].
-    #     Returns:
-    #         torch.Tensor: Output node features of shape [num_nodes, num_node_features].
-    #     """            
-    #     num_nodes = x.size(0)
-    #     h = x
-
-    #     # if self.lift_first:
-    #         # h = self.lift_operation(h)
-    #         # efficients = (1.0 + self.epsilon) * torch.eye(num_nodes) + self.adj_matrix
-    #         # h = efficients @ h
-    #         # return h
+    # def lift_operation(self, h):
     #     h = self.linear(h)
     #     h = F.relu(h)
-    #     # h = h * torch.tensor(self.m).pow(-0.5)
-    #     h = h * torch.tensor(x.size(1)).pow(-0.5)
-    #     row, col = edge_index
-    #     neighbor = scatter(h[row], col, dim=0, dim_size=x.size(0), reduce="sum")
-    #     identity = (1+self.epsilon) * h
-    #     return neighbor + identity
-
-    #     # row, col = edge_index
-    #     # neighbor = scatter(h[row], col, dim=0, dim_size=x.size(0), reduce="sum")
-    #     # identity = (1+self.epsilon) * h
-
-    #     # 1. Calculate: (1 + epsilon) * I + A
-    #     # efficients = (1.0 + self.epsilon) * torch.eye(num_nodes) + self.adj_matrix
-    #     # h = efficients @ h
-
-    #     # # do the lift operation if required by input parameters
-    #     # if self.lift:
-    #     # h = self.lift_operation(h)
+    #     h = h * torch.tensor(self.m).pow(-0.5)
 
     #     return h
 
-    # def message(self, x_j: torch.Tensor, norm: torch.Tensor) -> torch.Tensor:
-    #     """
-    #     Constructs messages from source nodes j to target nodes i.
-    #     This function is called by `propagate`.
+    def forward(self, x, edge_index):
+        num_nodes = x.size(0)
+        target, source = edge_index
+        deg = degree(source, num_nodes=num_nodes, dtype=x.dtype)
+        norm_factor = 1 + self.eps + deg
+        # norm = avg_degree(edge_index)
+        # norm = max_degree(edge_index)
 
-    #     Args:
-    #         x_j (torch.Tensor): Features of source nodes j of shape [num_edges, num_node_features].
-    #                             These are the features corresponding to the `col` indices in edge_index.
-    #         norm (torch.Tensor): The normalization coefficient computed in `forward` for each edge,
-    #                              shape [num_edges].
-
-    #     Returns:
-    #         torch.Tensor: Messages to be aggregated, shape [num_edges, num_node_features].
-    #                       Represents norm_ij * H_j.
-    #     """
-        # Apply the normalization to the features of the source node (j)
-        # norm has shape [num_edges], x_j has shape [num_edges, num_features]
-        # We need to reshape norm to [num_edges, 1] for broadcasting
-        # return norm.view(-1, 1) * x_j
+        h = self.W(x)
+        h = self.act(h)
+        h = h / self.out_dim**0.5
+        h = h / norm_factor.unsqueeze(1)
+        Ah = torch.zeros_like(h).index_add(0, target, h[source])
+        
+        return (1 + self.eps) * h + Ah
 
 
 class DecoupleModel(nn.Module):
@@ -171,72 +104,50 @@ class DecoupleModel(nn.Module):
                             or our injective layer
     """
     def __init__(self,
-                edge_index,
-                num_layers: int,
-                num_linear_layers: int,
-                input_dim: int,
-                mp_hidden_dim: int,
-                fl_hidden_dim: int,
-                output_dim:int,
-                epsilon: float,
-                dropout: float = 0.2,
-                batch_normalization: bool = False,
-                skip_connection: bool = True,
-                first_layer_linear: bool = True):
+                in_dim: int,
+                mp_width: int,
+                fl_width: int,
+                out_dim:int,
+                num_mp_layers: int = 3,
+                num_fl_layers: int = 2,
+                eps = 2.0**0.5,
+                act=F.relu,
+                freeze=True
+                # dropout: float = 0.2,
+                # batch_normalization: bool = False,
+                # skip_connection: bool = True,
+                #first_layer_linear: bool = True
+                ):
         super().__init__()
+        self.act = act
 
-        self.num_layers = num_layers
-        self.epsilon = epsilon
-        self.dropout = dropout
-        self.batch_normalization = batch_normalization
-        self.skip_connection = skip_connection
-        self.first_layer_linear = first_layer_linear
+        # Message passing layers
+        self.mp_layers = nn.ModuleList([
+            InjectiveMP(in_dim=in_dim if i == 0 else mp_width, out_dim=mp_width, eps=eps, act=act, freeze=freeze)
+            for i in range(num_mp_layers)
+        ]) if num_mp_layers > 0 else None
 
-        self.linear = nn.Linear(input_dim, mp_hidden_dim)
-        # lift first
-        self.first_injective_layer = InjectiveGNNLayer(edge_index=edge_index, epsilon=self.epsilon, input_dim=input_dim, hidden_dim=mp_hidden_dim)
-        # self.batch_norm = BatchNorm(mp_hidden_dim)
-        # self.layer_norm = nn.LayerNorm(mp_hidden_dim)
-        self.linear2 = nn.Linear(mp_hidden_dim, fl_hidden_dim)
+        # Fully connected layers
+        self.fc_layers = nn.ModuleList(
+            [nn.Linear(mp_width if self.mp_layers else in_dim, fl_width)] +
+            [nn.Linear(fl_width, fl_width) for _ in range(num_fl_layers - 1)]
+        ) if num_fl_layers > 0 else None
 
-        self.layers = nn.ModuleList()
-        for _ in range(num_layers):
-            self.layers.append(InjectiveGNNLayer(epsilon=self.epsilon, hidden_dim=mp_hidden_dim, edge_index=edge_index))
+        # Per-layer injection projections from MP output to FC width
+        self.injection_projs = nn.ModuleList([
+            nn.Linear(mp_width if self.mp_layers else in_dim, fl_width)
+            for _ in range(num_fl_layers)
+        ]) if num_fl_layers > 0 else None
 
-        params = list(self.layers.parameters())
-        print(f"DecoupleModel __init__ Number of parameters in injective layers: {sum(p.numel() for p in params)}")
+        # Output layer
+        out_input_dim = (
+            fl_width if self.fc_layers else
+            mp_width if self.mp_layers else
+            in_dim
+        )
+        self.output_layer = nn.Linear(out_input_dim, out_dim)
 
-        self.linear_layers = nn.ModuleList()
-        self.batch_norms = nn.ModuleList()
-        self.layer_norms = nn.ModuleList()
-        self.dropouts = nn.ModuleList()
-        self.activations = nn.ModuleList()
-        for i in range(num_linear_layers):
-            self.linear_layers.append(nn.Linear(fl_hidden_dim, fl_hidden_dim))
-            self.batch_norms.append(BatchNorm(fl_hidden_dim))
-            self.layer_norms.append(nn.LayerNorm(fl_hidden_dim))
-            self.dropouts.append(nn.Dropout(self.dropout))
-            self.activations.append(nn.ReLU())
-
-        # self.embedding_h = AtomEncoder(emb_dim=fl_hidden_dim)
-        # self.embedding_b = BondEncoder(emb_dim=fl_hidden_dim)
-        self.classifier = nn.Linear(fl_hidden_dim, output_dim)
-
-    # turn off training for injective message passing layer
-    def turn_off_training(self):
-        self.first_injective_layer.turn_off_training()
-        for i in range(self.num_layers):
-            self.layers[i].turn_off_training()
-
-
-    # turn on training for injective message passing layer
-    def turn_on_training(self):
-        self.first_injective_layer.turn_on_training()
-        for i in range(self.num_layers):
-            self.layers[i].turn_on_training()
-
-
-    def forward(self, x: torch.Tensor, edge_index: torch.Tensor, edge_weight: torch.Tensor = None, batch: torch.Tensor = None) -> torch.Tensor:
+    def forward(self, data):
         """
         Forward pass through the stacked GNN layers.
 
@@ -248,38 +159,105 @@ class DecoupleModel(nn.Module):
         Returns:
             torch.Tensor: Node features after passing through all layers.
         """
-        h = x # Start with initial features
+        x, edge_index = data.x, data.edge_index
 
-        # Apply the embedding layers
-        # h = self.embedding_h(h)
+        if self.mp_layers:
+            for layer in self.mp_layers:
+                x = layer(x, edge_index)
 
-        if self.first_layer_linear:
-            h = self.linear(h)
-        else:
-            h = self.first_injective_layer(h, edge_index)
-        # h = self.batch_norm(h)
-        # h = self.layer_norm(h)
-        # h = torch.relu(h)
+        if self.fc_layers:
+            x_inject = x  # Save for injection
+            for layer, proj in zip(self.fc_layers, self.injection_projs):
+                injected = proj(x_inject)
+                x = layer(self.act(x)) + injected
 
-        for i, injective_layer in enumerate(self.layers):
-            h = injective_layer(h, edge_index)
+        return self.output_layer(x)
 
-        # map to feature learning
-        h = self.linear2(h)
-        for i, linear_layer in enumerate(self.linear_layers):
-            pre_h = h
-            h = linear_layer(h)
-            if self.batch_normalization:
-                h = self.batch_norms[i](h)
-                # h = self.layer_norms[i](h)
-            if self.skip_connection:
-                h = h + pre_h
-            h = self.activations[i](h)
-            if self.dropout > 0:
-                h = self.dropouts[i](h)
 
-        # h = global_add_pool(h, batch) if batch is not None else h
 
-        h = self.classifier(h)
+# def deg_vec(edge_index):
+#     adj = to_dense_adj(edge_index)[0]
+#     deg = adj.sum(dim=1)
+#     return deg
 
-        return h
+# class iMP(nn.Module):
+#     def __init__(self, in_dim, out_dim, eps=2.0**0.5, 
+#                  act=F.relu, freeze=False):
+#         super().__init__()
+#         self.in_dim = in_dim
+#         self.out_dim = out_dim
+#         self.eps = eps
+#         self.act = act
+#         self.freeze = freeze
+
+#         self.W = nn.Linear(in_dim, out_dim, bias=False)
+#         torch.nn.init.normal_(self.W.weight, mean=0.0, std=1.0)
+
+#         if self.freeze:
+#             for param in self.W.parameters():
+#                 param.requires_grad = False  # freeze weights
+
+#     def forward(self, x, edge_index):
+#         degree = deg_vec(edge_index)
+#         norm_factor = 1 + self.eps + degree
+#         # norm = avg_degree(edge_index)
+#         # norm = max_degree(edge_index)
+        
+#         h = self.W(x)
+#         h = self.act(h)
+#         h = h / self.out_dim**0.5
+#         h = h / norm_factor.unsqueeze(1)
+
+#         row, col = edge_index
+#         Ah = torch.zeros_like(h).index_add(0, row, h[col])
+#         return (1 + self.eps) * h + Ah
+
+# class iGNN(nn.Module):
+#     def __init__(self, in_dim, mp_width, fc_width, out_dim, 
+#                  num_mp_layers=3, num_fc_layers=2, 
+#                  eps=torch.sqrt(torch.tensor(2.0)), act=F.gelu, freeze=False):
+#         super().__init__()
+#         self.act = act
+
+#         # Message passing layers (optional)
+#         self.mp_layers = nn.ModuleList([
+#             iMP(in_dim if i == 0 else mp_width, mp_width, eps=eps, act=act, freeze=freeze)
+#             for i in range(num_mp_layers)
+#         ]) if num_mp_layers > 0 else None
+
+#         # Fully connected layers (optional)
+#         self.fc_layers = nn.ModuleList(
+#             [nn.Linear(mp_width if self.mp_layers else in_dim, fc_width)] +
+#             [nn.Linear(fc_width, fc_width) for _ in range(num_fc_layers - 1)]
+#         ) if num_fc_layers > 0 else None
+
+#         # Per-layer injection projections from MP output to FC width
+#         self.injection_projs = nn.ModuleList([
+#             nn.Linear(mp_width if self.mp_layers else in_dim, fc_width)
+#             for _ in range(num_fc_layers)
+#         ]) if num_fc_layers > 0 else None
+
+#         # Output layer
+#         out_input_dim = (
+#             fc_width if self.fc_layers else
+#             mp_width if self.mp_layers else
+#             in_dim
+#         )
+#         self.output_layer = nn.Linear(out_input_dim, out_dim)
+
+
+#     def forward(self, data: Data):
+#         x, edge_index = data.x, data.edge_index
+
+#         if self.mp_layers:
+#             for layer in self.mp_layers:
+#                 x = layer(x, edge_index)
+
+#         # FC layers with per-layer injection
+#         if self.fc_layers:
+#             x_inject = x  # Save for injection
+#             for layer, proj in zip(self.fc_layers, self.injection_projs):
+#                 injected = proj(x_inject)
+#                 x = layer(self.act(x)) + injected
+
+#         return self.output_layer(x)

@@ -14,6 +14,8 @@ import math
 import random
 import numpy as np
 from torchinfo import summary
+from torch_geometric.data import Data
+
 
 
 def fix_seed(seed=42):
@@ -28,7 +30,8 @@ def fix_seed(seed=42):
 
 def train():
     model.train()
-    out = model(data.x, data.edge_index)
+    # out = model(data.x, data.edge_index)
+    out = model(data)
     # is_labeled = data.y == data.y
     loss = criterion(out[train_idx], data.y[train_idx])
     optimizer.zero_grad()
@@ -41,7 +44,8 @@ def train():
 @torch.no_grad()
 def evaluate(model, train_split_idx, validation_split_idx, test_split_idx):
     model.eval()
-    out = model(data.x, data.edge_index)
+    out = model(data)
+    # out = model(data.x, data.edge_index)
     y_true_train = data.y[train_split_idx]
     y_pred_train = out[train_split_idx]
     y_pred_train = y_pred_train.argmax(dim=-1)
@@ -65,9 +69,9 @@ def evaluate(model, train_split_idx, validation_split_idx, test_split_idx):
 ###############################
 # hardcoded value goes here!!!!
 dataset_name = 'Cora'
-num_layers = 3
-num_linear_layers = 1 # number of mlp layer
-mp_hidden_dim = 512
+num_mp_layers = 3
+num_fl_layers = 2 # number of mlp layer
+mp_hidden_dim = 3000
 fl_hidden_dim = 512
 epsilon = 5**0.5/2
 optimizer_lr = 0.01
@@ -108,20 +112,21 @@ c = max(data.y.max().item() + 1, data.y.shape[0])
 # print('initial rank of distinct matrix: ', rank_of_distinct_matrix.item())
 
 model = DecoupleModel (
-    edge_index=data.edge_index,
-    num_layers=num_layers,
-    num_linear_layers=num_linear_layers,
-    input_dim=d,
-    mp_hidden_dim=mp_hidden_dim,
-    fl_hidden_dim=fl_hidden_dim,
-    output_dim=c,
-    epsilon=epsilon,
-    dropout=dropout,
-    first_layer_linear=first_layer_linear,
-    batch_normalization=batch_normalization,
-    skip_connection=skip_connection
+    # edge_index=data.edge_index,
+    in_dim=d,
+    out_dim=c,
+    mp_width=mp_hidden_dim,
+    fl_width=fl_hidden_dim,
+    num_mp_layers = num_mp_layers,
+    num_fl_layers = num_fl_layers,
+    eps=epsilon,
+    # freeze
+    # dropout=dropout,
+    # first_layer_linear=first_layer_linear,
+    # batch_normalization=batch_normalization,
+    # skip_connection=skip_connection
 )
-summary(model, input_data=(data.x, data.edge_index))
+# summary(model, input_data=(data))
 
 train_idx = torch.where(data.train_mask)[0]
 valid_idx = torch.where(data.val_mask)[0]
@@ -138,8 +143,8 @@ elif loss_func == 'NLLLoss':
 with open('experiment_records.txt', 'a') as f:
     f.writelines('Experiment run: \n')
     f.writelines('dataset: ' + dataset_name + '\n')
-    f.writelines('num_layers: ' + str(num_layers) + '\n')
-    f.writelines('num_linear_layers: ' + str(num_linear_layers) + '\n')
+    f.writelines('num_mp_layers: ' + str(num_mp_layers) + '\n')
+    f.writelines('num_fl_layers: ' + str(num_fl_layers) + '\n')
     f.writelines('mp_hidden_dim: ' + str(mp_hidden_dim) + '\n')
     f.writelines('fl_hidden_dim: ' + str(fl_hidden_dim) + '\n')
     f.writelines('epsilon: ' + str(epsilon) + '\n')
