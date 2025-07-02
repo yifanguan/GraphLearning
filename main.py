@@ -15,6 +15,7 @@ import random
 import numpy as np
 from torchinfo import summary
 from torch_geometric.data import Data
+from utils.wl_test import wl_relabel
 
 
 
@@ -71,13 +72,13 @@ def evaluate(model, train_split_idx, validation_split_idx, test_split_idx):
 dataset_name = 'Cora'
 num_mp_layers = 3
 num_fl_layers = 2 # number of mlp layer
-mp_hidden_dim = 3000
+mp_hidden_dim = 8000
 fl_hidden_dim = 512
 epsilon = 5**0.5/2
 optimizer_lr = 0.01
 # weight_decay=5e-4
 loss_func = 'CrossEntropyLoss'
-total_epoch = 1000
+total_epoch = 300
 display_step = 50
 dropout=0
 warm_up_epoch_num = 0
@@ -102,10 +103,12 @@ print('Training nodes:', data.train_mask.sum().item())
 d = data.x.shape[1]
 c = max(data.y.max().item() + 1, data.y.shape[0])
 
-# calculate intial number distinct features
-# 先suan distinct klog(k)
+
+k = wl_relabel(data, 30)
+print(k)
+
+# 先算 distinct klog(k) distinct local structure
 # random search
-# distinct local structure
 # initial_num_distinct_features = torch.unique(data.x, dim=0).float().size(0)
 # print('initial_num_distinct_features: ', initial_num_distinct_features)
 # rank_of_distinct_matrix = torch.linalg.matrix_rank(torch.unique(data.x, dim=0), tol=1e-5)
