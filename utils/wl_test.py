@@ -73,7 +73,7 @@ def wl_relabel(graph: Data, h: int):
     
     is_converge = False
     k = count_distinct(labels)
-    print('k is {}', k)
+    # print('k is {}', k)
     for i in range(h):
         new_labels = {}
         for node in graph.nodes():
@@ -83,11 +83,11 @@ def wl_relabel(graph: Data, h: int):
         new_k = count_distinct(new_labels)
 
         if new_k == k:
-            print("Converge on {} distinct structures".format(k))
+            # print("Converge on {} distinct structures".format(k))
             is_converge = True
 
         labels = new_labels
         k = new_k
-        print("After Iteration {}, {} distinct structures, is converge? {}".format(i, k, is_converge))
+        # print("After Iteration {}, {} distinct structures, is converge? {}".format(i, k, is_converge))
 
     return k

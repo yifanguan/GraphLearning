@@ -29,7 +29,7 @@ def fix_seed(seed=42):
     torch.backends.cudnn.benchmark = False
 
 
-def train():
+def train(model, data, train_idx, optimizer, criterion):
     model.train()
     # out = model(data.x, data.edge_index)
     out = model(data)
@@ -43,7 +43,7 @@ def train():
 # result = evaluate(model, dataset, split_idx, eval_func, criterion, args)
 
 @torch.no_grad()
-def evaluate(model, train_split_idx, validation_split_idx, test_split_idx):
+def evaluate(model, data, train_split_idx, validation_split_idx, test_split_idx):
     model.eval()
     out = model(data)
     # out = model(data.x, data.edge_index)
@@ -67,7 +67,7 @@ def evaluate(model, train_split_idx, validation_split_idx, test_split_idx):
 
     return train_acc, valid_acc, test_acc 
 
-def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch):
+def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index):
     ###############################
     # hardcoded value goes here!!!!
     # dataset_name = 'Cora'
@@ -80,7 +80,7 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     # # weight_decay=5e-4
     # loss_func = 'CrossEntropyLoss'
     # total_epoch = 300
-    # display_step = 50
+    display_step = 50
     # dropout=0
     # warm_up_epoch_num = 0
     # first_layer_linear=False
@@ -89,24 +89,24 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     ###############################
     fix_seed()
     dataset = Planetoid(root='data/Planetoid', name=dataset_name, transform=T.NormalizeFeatures())
-    print(f'Dataset: {dataset}:')
-    print('Number of graphs:', len(dataset))
-    print('Number of features:', dataset.num_features)
-    print('Number of classes:', dataset.num_classes)
+    # print(f'Dataset: {dataset}:')
+    # print('Number of graphs:', len(dataset))
+    # print('Number of features:', dataset.num_features)
+    # print('Number of classes:', dataset.num_classes)
 
     data = dataset[0]  # Cora has only one graph
 
-    print(data)
-    print('Number of nodes:', data.num_nodes)
-    print('Number of edges:', data.num_edges)
-    print('Training nodes:', data.train_mask.sum().item())
+    # print(data)
+    # print('Number of nodes:', data.num_nodes)
+    # print('Number of edges:', data.num_edges)
+    # print('Training nodes:', data.train_mask.sum().item())
 
     d = data.x.shape[1]
     c = max(data.y.max().item() + 1, data.y.shape[0])
 
-
-    k = wl_relabel(data, 30)
-    print(k)
+    # Enable if needed
+    # k = wl_relabel(data, 30)
+    # print(f'num distinct structures: {k}')
 
     # 先算 distinct klog(k) distinct local structure
     # random search
@@ -144,6 +144,17 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
         criterion = torch.nn.NLLLoss()
     # model.reset_parameters()
 
+    print('Experiment run {}'.format(index))
+    print(f'dataset: {dataset_name}')
+    print(f'num_mp_layers: {num_mp_layers}')
+    print(f'num_fl_layers: {num_fl_layers}')
+    print(f'mp_hidden_dim: {mp_hidden_dim}')
+    print(f'fl_hidden_dim: {fl_hidden_dim}')
+    print(f'epsilon: {epsilon}')
+    print(f'optimizer_lr: {optimizer_lr}')
+    print(f'loss_func: {loss_func}')
+    print(f'total_epoch: {total_epoch}')
+
     with open('experiment_records.txt', 'a') as f:
         f.writelines('Experiment run: \n')
         f.writelines('dataset: ' + dataset_name + '\n')
@@ -174,9 +185,9 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
         #     model.turn_on_training()
         # else:
         #     model.turn_off_training()
-        loss = train()
+        loss = train(model,data,train_idx,optimizer,criterion)
         loss_list.append(loss)
-        train_acc, valid_acc, test_acc = evaluate(model, train_idx, valid_idx, test_idx)
+        train_acc, valid_acc, test_acc = evaluate(model, data, train_idx, valid_idx, test_idx)
 
         train_accuracy_list.append(train_acc)
         valid_accuracy_list.append(valid_acc)
@@ -207,6 +218,12 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
         f.write('best test: ' + str(best_test) + '\n')
         f.write("\n\n")
 
+    print(f'train_accuracy_list: {train_accuracy_list}')
+    print(f'valid_accuracy_list: {valid_accuracy_list}')
+    print(f'test_accuracy_list: {test_accuracy_list}')
+    print(f'best validation: {best_val}')
+    print(f'best test: {best_test}')
+
     # Plotting the loss, min cell is 0.1, large figure
     plt.figure(figsize=(10, 5))
     plt.plot(loss_list, label='Loss', color='red')
@@ -215,7 +232,7 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     plt.ylabel('Loss')
     plt.title('Loss vs Epochs')
     plt.legend()
-    plt.savefig('loss_cora.png')
+    plt.savefig('loss_cora{}.png'.format(index))
     plt.clf()  # Clear the current figure for the next plot
     # Plotting the acc in one figure
     plt.figure(figsize=(10, 5))
@@ -226,7 +243,7 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     plt.ylabel('Accuracy')
     plt.title('Accuracy vs Epochs')
     plt.legend()
-    plt.savefig('accuracy_cora.png')
+    plt.savefig('accuracy_cora{}.png'.format(index))
     plt.clf()  # Clear the current figure for the next plot
 
 
@@ -242,9 +259,18 @@ def ablation_study():
     optimizer_lr = 0.01
     # weight_decay=5e-4
     loss_func = 'CrossEntropyLoss'
-    total_epoch = 300
+    total_epoch = 1000
     ###############################
-    run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch)
+    print("Begin abalation study")
+    index = 0
+    for num_mp_layers in [1,2,3,4,5,6]:
+        for num_fl_layers in [1,2,3,4,5]:
+            for mp_hidden_dim in [16,32,64,128,256,512,1024,2048,4012,8024]:
+                for fl_hidden_dim in [16,32,64,128,256,512,1024,2048]:
+                    run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
+                        fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index)
+                    index += 1
+    print("End abalation study")
 
 
 
