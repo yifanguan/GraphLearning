@@ -1,0 +1,11 @@
+Begin abalation study
+Experiment run 0
+dataset: Cora
+num_mp_layers: 1
+num_fl_layers: 2
+mp_hidden_dim: 3000
+fl_hidden_dim: 512
+epsilon: 1.118033988749895
+optimizer_lr: 0.01
+loss_func: CrossEntropyLoss
+total_epoch: 1000
