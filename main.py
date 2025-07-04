@@ -17,6 +17,9 @@ from torchinfo import summary
 from torch_geometric.data import Data
 from utils.wl_test import wl_relabel
 import argparse
+from datetime import datetime
+from pathlib import Path
+
 
 
 
@@ -44,10 +47,13 @@ def train(model, data, train_idx, optimizer, criterion):
 # result = evaluate(model, dataset, split_idx, eval_func, criterion, args)
 
 @torch.no_grad()
-def evaluate(model, data, train_split_idx, validation_split_idx, test_split_idx):
+def evaluate(model, criterion, data, train_split_idx, validation_split_idx, test_split_idx):
     model.eval()
     out = model(data)
-    # out = model(data.x, data.edge_index)
+    # train_loss = criterion(out[train_split_idx], data.y[train_split_idx])
+    valid_loss = criterion(out[validation_split_idx], data.y[validation_split_idx])
+    test_loss = criterion(out[test_split_idx], data.y[test_split_idx])
+
     y_true_train = data.y[train_split_idx]
     y_pred_train = out[train_split_idx]
     y_pred_train = y_pred_train.argmax(dim=-1)
@@ -66,9 +72,10 @@ def evaluate(model, data, train_split_idx, validation_split_idx, test_split_idx)
     valid_acc = correct_valid.sum().item() / len(correct_valid)
     test_acc = correct_tes.sum().item() / len(correct_tes)
 
-    return train_acc, valid_acc, test_acc 
+    return train_acc, valid_acc, test_acc, valid_loss, test_loss
 
-def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index):
+def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim,
+        epsilon, optimizer_lr, loss_func, total_epoch, index, freeze):
     ###############################
     # hardcoded value goes here!!!!
     # dataset_name = 'Cora'
@@ -126,7 +133,7 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
         num_mp_layers = num_mp_layers,
         num_fl_layers = num_fl_layers,
         eps=epsilon,
-        # freeze
+        freeze=freeze
         # dropout=dropout,
         # first_layer_linear=first_layer_linear,
         # batch_normalization=batch_normalization,
@@ -175,7 +182,9 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
         # f.writelines('skip_connection: ' + str(skip_connection) + '\n')
         # f.writelines('dropout: ' + str(dropout) + '\n')
 
-    loss_list = []
+    train_loss_list = []
+    valid_loss_list = []
+    test_loss_list = []
     best_val = float('-inf')
     best_test = float('-inf')
     train_accuracy_list = []
@@ -188,12 +197,14 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
         # else:
         #     model.turn_off_training()
         loss = train(model,data,train_idx,optimizer,criterion)
-        loss_list.append(loss)
-        train_acc, valid_acc, test_acc = evaluate(model, data, train_idx, valid_idx, test_idx)
+        train_acc, valid_acc, test_acc, valid_loss, test_loss = evaluate(model, criterion, data, train_idx, valid_idx, test_idx)
 
         train_accuracy_list.append(train_acc)
         valid_accuracy_list.append(valid_acc)
         test_accuracy_list.append(test_acc)
+        train_loss_list.append(loss)
+        valid_loss_list.append(valid_loss)
+        test_loss_list.append(test_loss)
 
         if test_acc > best_test:
             best_test = test_acc
@@ -226,15 +237,17 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     print(f'best validation: {best_val}')
     print(f'best test: {best_test}')
 
+    # TODO: print loss
     # Plotting the loss, min cell is 0.1, large figure
     plt.figure(figsize=(10, 5))
-    plt.plot(loss_list, label='Loss', color='red')
-
+    plt.plot(train_loss_list, label='Train Loss', color='blue')
+    plt.plot(valid_loss_list, label='Valid Loss', color='orange')
+    plt.plot(test_loss_list, label='Test Loss', color='green')
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
     plt.title('Loss vs Epochs')
     plt.legend()
-    plt.savefig('loss_cora{}.png'.format(index))
+    plt.savefig('{}/loss_cora_{}_{}.png'.format(folder_name, index, timestamp))
     # plt.clf()  # Clear the current figure for the next plot
     plt.close()
     # Plotting the acc in one figure
@@ -246,13 +259,13 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     plt.ylabel('Accuracy')
     plt.title('Accuracy vs Epochs')
     plt.legend()
-    plt.savefig('accuracy_cora{}.png'.format(index))
+    plt.savefig('{}/accuracy_cora{}_{}.png'.format(folder_name, index, timestamp))
     # plt.clf()  # Clear the current figure for the next plot
     plt.close()
 
     return best_val, best_test
 
-def ablation_study_on_mp_depth():
+def ablation_study_on_mp_depth(freeze):
     ###############################
     # Experiment setup
     dataset_name = 'Cora'
@@ -273,7 +286,7 @@ def ablation_study_on_mp_depth():
     candidates = [1,2,3,4,5,6]
     for num_mp_layers in candidates:
         best_val, best_test = run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
-                                  fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index)
+                                  fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index, freeze)
         best_vals.append(best_val)
         best_tests.append(best_test)
         index += 1
@@ -284,11 +297,11 @@ def ablation_study_on_mp_depth():
     plt.ylabel('Accuracy')
     plt.title('accuracy vs mp depth')
     plt.legend()
-    plt.savefig('mp_depth_accuracy{}.png'.format(index))
+    plt.savefig('{}/mp_depth_accuracy{}_{}.png'.format(folder_name, index, timestamp))
     plt.clf()  # Clear the current figure for the next plot
     print("End abalation study")
 
-def ablation_study_on_mp_width():
+def ablation_study_on_mp_width(freeze):
     ###############################
     # Experiment setup
     dataset_name = 'Cora'
@@ -309,7 +322,7 @@ def ablation_study_on_mp_width():
     candidates = [250,500,750,1000,2000,4000,8000]
     for mp_hidden_dim in candidates:
         best_val, best_test = run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
-                                  fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index)
+                                  fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index, freeze)
         best_vals.append(best_val)
         best_tests.append(best_test)
         index += 1
@@ -320,12 +333,12 @@ def ablation_study_on_mp_width():
     plt.ylabel('Accuracy')
     plt.title('accuracy vs mp width')
     plt.legend()
-    plt.savefig('mp_width_accuracy{}.png'.format(index))
+    plt.savefig('{}/mp_width_accuracy{}_{}.png'.format(folder_name, index, timestamp))
     plt.clf()  # Clear the current figure for the next plot
     print("End abalation study")
 
 
-def ablation_study_on_fc_depth():
+def ablation_study_on_fc_depth(freeze):
     ###############################
     # Experiment setup
     dataset_name = 'Cora'
@@ -346,7 +359,7 @@ def ablation_study_on_fc_depth():
     candidates = [1,2,3,4,5,6]
     for num_fl_layers in candidates:
         best_val, best_test = run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
-                                  fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index)
+                                  fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index, freeze)
         best_vals.append(best_val)
         best_tests.append(best_test)
         index += 1
@@ -357,12 +370,12 @@ def ablation_study_on_fc_depth():
     plt.ylabel('Accuracy')
     plt.title('accuracy vs fc depth')
     plt.legend()
-    plt.savefig('fc_depth_accuracy{}.png'.format(index))
+    plt.savefig('{}/fc_depth_accuracy{}_{}.png'.format(folder_name, index, timestamp))
     plt.clf()  # Clear the current figure for the next plot
     print("End abalation study")
 
 
-def ablation_study_on_fc_width():
+def ablation_study_on_fc_width(freeze):
     ###############################
     # Experiment setup
     dataset_name = 'Cora'
@@ -381,10 +394,9 @@ def ablation_study_on_fc_width():
     best_vals = []
     best_tests = []
     candidates = [16,32,64,128,256,512,1024,2048,4096]
-    # TODO: print loss
     for fl_hidden_dim in candidates:
         best_val, best_test = run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
-                                  fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index)
+                                  fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index, freeze)
         best_vals.append(best_val)
         best_tests.append(best_test)
         index += 1
@@ -395,12 +407,12 @@ def ablation_study_on_fc_width():
     plt.ylabel('Accuracy')
     plt.title('accuracy vs fc width')
     plt.legend()
-    plt.savefig('fc_width_accuracy{}.png'.format(index))
+    plt.savefig('{}/fc_width_accuracy{}_{}.png'.format(folder_name, index, timestamp))
     plt.clf()  # Clear the current figure for the next plot
     print("End abalation study")
 
 
-def ablation_study():
+def ablation_study(freeze):
     ###############################
     # Experiment setup
     dataset_name = 'Cora'
@@ -421,7 +433,7 @@ def ablation_study():
             for mp_hidden_dim in [16,32,64,128,256,512,1024,2048,4012,8024]:
                 for fl_hidden_dim in [16,32,64,128,256,512,1024,2048]:
                     run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
-                        fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index)
+                        fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index, freeze)
                     index += 1
     print("End abalation study")
 
@@ -436,16 +448,27 @@ parser.add_argument('--fc_width', action='store_true', help='fully connected lay
 parser.add_argument('--train_mp', action='store_true', help='train message passing layers')
 
 args = parser.parse_args()
+freeze = not args.train_mp
+
+# For filename
+now = datetime.now()
+timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
+
+# Create folder for results
+folder = Path(f"result_{timestamp}")
+folder.mkdir(parents=True, exist_ok=True)
+folder_name = folder.name
+
+if args.mp_depth:
+    ablation_study_on_mp_depth(freeze)
+if args.mp_width:
+    ablation_study_on_mp_width(freeze)
+if args.fc_depth:
+    ablation_study_on_fc_depth(freeze)
+if args.fc_width:
+    ablation_study_on_fc_width(freeze)
 
 # ablation_study()
-if args.mp_depth:
-    ablation_study_on_mp_depth()
-if args.mp_width:
-    ablation_study_on_mp_width()
-if args.fc_depth:
-    ablation_study_on_fc_depth()
-if args.fc_width:
-    ablation_study_on_fc_width()
 
 # dataset_name = 'Cora'
 # num_mp_layers = 4
