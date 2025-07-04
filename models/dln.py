@@ -162,5 +162,13 @@ class DecoupleModel(nn.Module):
             for layer, proj in zip(self.fc_layers, self.injection_projs):
                 injected = proj(x_inject)
                 x = layer(self.act(x)) + injected
+                # print("Input dim:", layer.in_features)
+                # print("Output dim:", layer.out_features)
+                # print("Input dim:", proj.in_features)
+                # print("Output dim:", proj.out_features)
+                # print('injected: ')
+                # print(injected.shape)
+                # print('x: ')
+                # print(x.shape)
 
         return self.output_layer(x)

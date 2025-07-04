@@ -106,8 +106,9 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     c = max(data.y.max().item() + 1, data.y.shape[0])
 
     # Enable if needed
-    # k = wl_relabel(data, 30)
-    # print(f'num distinct structures: {k}')
+    k = wl_relabel(data, 30)
+    print(f'num distinct structures: {k}')
+    # ood, train, test distribution
 
     # 先算 distinct klog(k) distinct local structure
     # random search
@@ -263,21 +264,22 @@ def ablation_study_on_mp_depth():
     optimizer_lr = 0.01
     # weight_decay=5e-4
     loss_func = 'CrossEntropyLoss'
-    total_epoch = 1000
+    total_epoch = 400
     ###############################
     print("Begin abalation study")
     index = 0
     best_vals = []
     best_tests = []
-    for num_mp_layers in [1,2,3,4,5,6]:
+    candidates = [1,2,3,4,5,6]
+    for num_mp_layers in candidates:
         best_val, best_test = run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
                                   fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index)
         best_vals.append(best_val)
         best_tests.append(best_test)
         index += 1
     plt.figure(figsize=(10, 5))
-    plt.plot(num_mp_layers, best_vals, label='Best Valid Accuracy', color='blue')
-    plt.plot(num_mp_layers, best_tests, label='Best Test Accuracy', color='red')
+    plt.plot(candidates, best_vals, label='Best Valid Accuracy', color='blue')
+    plt.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
     plt.xlabel('mp depth')
     plt.ylabel('Accuracy')
     plt.title('accuracy vs mp depth')
@@ -298,24 +300,25 @@ def ablation_study_on_mp_width():
     optimizer_lr = 0.01
     # weight_decay=5e-4
     loss_func = 'CrossEntropyLoss'
-    total_epoch = 1000
+    total_epoch = 400
     ###############################
     print("Begin abalation study")
     index = 0
     best_vals = []
     best_tests = []
-    for mp_hidden_dim in [250,500,750,1000,2000,4000,8000]:
+    candidates = [250,500,750,1000,2000,4000,8000]
+    for mp_hidden_dim in candidates:
         best_val, best_test = run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
                                   fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index)
         best_vals.append(best_val)
         best_tests.append(best_test)
         index += 1
     plt.figure(figsize=(10, 5))
-    plt.plot(num_mp_layers, best_vals, label='Best Valid Accuracy', color='blue')
-    plt.plot(num_mp_layers, best_tests, label='Best Test Accuracy', color='red')
+    plt.plot(candidates, best_vals, label='Best Valid Accuracy', color='blue')
+    plt.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
     plt.xlabel('mp width')
     plt.ylabel('Accuracy')
-    plt.title('accuracy vs mp depth')
+    plt.title('accuracy vs mp width')
     plt.legend()
     plt.savefig('mp_width_accuracy{}.png'.format(index))
     plt.clf()  # Clear the current figure for the next plot
@@ -334,24 +337,25 @@ def ablation_study_on_fc_depth():
     optimizer_lr = 0.01
     # weight_decay=5e-4
     loss_func = 'CrossEntropyLoss'
-    total_epoch = 1000
+    total_epoch = 400
     ###############################
     print("Begin abalation study")
     index = 0
     best_vals = []
     best_tests = []
-    for num_fl_layers in [1,2,3,4,5,6]:
+    candidates = [1,2,3,4,5,6]
+    for num_fl_layers in candidates:
         best_val, best_test = run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
                                   fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index)
         best_vals.append(best_val)
         best_tests.append(best_test)
         index += 1
     plt.figure(figsize=(10, 5))
-    plt.plot(num_mp_layers, best_vals, label='Best Valid Accuracy', color='blue')
-    plt.plot(num_mp_layers, best_tests, label='Best Test Accuracy', color='red')
+    plt.plot(candidates, best_vals, label='Best Valid Accuracy', color='blue')
+    plt.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
     plt.xlabel('fc depth')
     plt.ylabel('Accuracy')
-    plt.title('accuracy vs mp depth')
+    plt.title('accuracy vs fc depth')
     plt.legend()
     plt.savefig('fc_depth_accuracy{}.png'.format(index))
     plt.clf()  # Clear the current figure for the next plot
@@ -365,29 +369,31 @@ def ablation_study_on_fc_width():
     num_mp_layers = 3
     num_fl_layers = 2 # number of mlp layer
     mp_hidden_dim = 3000
-    fl_hidden_dim = 512
+    # fl_hidden_dim = 512
     epsilon = 5**0.5/2
     optimizer_lr = 0.01
     # weight_decay=5e-4
     loss_func = 'CrossEntropyLoss'
-    total_epoch = 1000
+    total_epoch = 400
     ###############################
     print("Begin abalation study")
     index = 0
     best_vals = []
     best_tests = []
-    for fl_hidden_dim in [16,64,256,512,1024]:
+    candidates = [16,32,64,128,256,512,1024,2048,4096]
+    # TODO: print loss
+    for fl_hidden_dim in candidates:
         best_val, best_test = run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
                                   fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index)
         best_vals.append(best_val)
         best_tests.append(best_test)
         index += 1
     plt.figure(figsize=(10, 5))
-    plt.plot(num_mp_layers, best_vals, label='Best Valid Accuracy', color='blue')
-    plt.plot(num_mp_layers, best_tests, label='Best Test Accuracy', color='red')
+    plt.plot(candidates, best_vals, label='Best Valid Accuracy', color='blue')
+    plt.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
     plt.xlabel('fc width')
     plt.ylabel('Accuracy')
-    plt.title('accuracy vs mp depth')
+    plt.title('accuracy vs fc width')
     plt.legend()
     plt.savefig('fc_width_accuracy{}.png'.format(index))
     plt.clf()  # Clear the current figure for the next plot
@@ -427,7 +433,7 @@ parser.add_argument('--mp_depth', action='store_true', help='message passing lay
 parser.add_argument('--mp_width', action='store_true', help='message passing layer width')
 parser.add_argument('--fc_depth', action='store_true', help='fully connected layer depth')
 parser.add_argument('--fc_width', action='store_true', help='fully connected layer width')
-# parser.add_argument('--verbose', action='store_true', help='increase output verbosity')
+parser.add_argument('--train_mp', action='store_true', help='train message passing layers')
 
 args = parser.parse_args()
 
@@ -440,4 +446,19 @@ if args.fc_depth:
     ablation_study_on_fc_depth()
 if args.fc_width:
     ablation_study_on_fc_width()
+
+# dataset_name = 'Cora'
+# num_mp_layers = 4
+# num_fl_layers = 2 # number of mlp layer
+# mp_hidden_dim = 4000
+# fl_hidden_dim = 512
+# epsilon = 5**0.5/2
+# optimizer_lr = 0.01
+# # weight_decay=5e-4
+# loss_func = 'CrossEntropyLoss'
+# total_epoch = 300
+# ###############################
+# index = 10000
+# run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
+#     fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index)
 
