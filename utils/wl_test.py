@@ -1,7 +1,7 @@
 # WL Test Util used to find distinct neighborhood
 import networkx as nx
 from hashlib import md5
-from collections import Counter
+# from collections import Counter
 from torch_geometric.utils import to_networkx
 from torch_geometric.data import Data
 
@@ -47,7 +47,8 @@ def reassign_label(old_labels, new_labels):
     return res
 
 def count_distinct(labels):
-    return len(Counter(labels.values()).values())
+    return len(set(labels.values()))
+    # return len(Counter(labels.values()).values())
 
 # WL Test Initialization
 # WL test starts by assigning each node a label.
@@ -90,4 +91,26 @@ def wl_relabel(graph: Data, h: int):
         k = new_k
         # print("After Iteration {}, {} distinct structures, is converge? {}".format(i, k, is_converge))
 
-    return k
+    return k, labels
+
+def wl_train_test_ood(labels, train_idx, test_idx):
+    '''
+    Helper function used to evaluate ood.
+    Return number of distinct features in train, number of distinct features in test,
+    and number of distinct features exists in both train and test.
+    '''
+    train_idx = [idx.item() for idx in train_idx]
+    test_idx = [idx.item() for idx in test_idx]
+    train_labels = {}
+    test_labels = {}
+    for idx in train_idx:
+        assert idx in labels, "missing train node label"
+        train_labels[idx] = labels[idx]
+    for idx in test_idx:
+        assert idx in labels, "missing test node label"
+        test_labels[idx] = labels[idx]
+    train_distinct_set = set(train_labels.values())
+    test_distinct_set = set(test_labels.values())
+    train_test_intersection = train_distinct_set & test_distinct_set
+
+    return len(train_distinct_set), len(test_distinct_set), len(train_test_intersection)

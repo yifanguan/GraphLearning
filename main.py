@@ -15,7 +15,7 @@ import random
 import numpy as np
 # from torchinfo import summary
 from torch_geometric.data import Data
-from utils.wl_test import wl_relabel
+from utils.wl_test import wl_relabel, wl_train_test_ood
 import argparse
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +23,7 @@ import sys
 from utils.text_hyperparameters import add_hyperparameter_text
 
 # TODO: improve result folder structure
+# TODO: dashed line for std result after running multiple runs
 
 
 def fix_seed(seed=42):
@@ -46,7 +47,6 @@ def train(model, data, train_idx, optimizer, criterion):
     optimizer.step()
     return loss.item()
 
-# result = evaluate(model, dataset, split_idx, eval_func, criterion, args)
 
 @torch.no_grad()
 def evaluate(model, criterion, data, train_split_idx, validation_split_idx, test_split_idx):
@@ -75,6 +75,7 @@ def evaluate(model, criterion, data, train_split_idx, validation_split_idx, test
     test_acc = correct_tes.sum().item() / len(correct_tes)
 
     return train_acc, valid_acc, test_acc, valid_loss, test_loss
+
 
 def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim,
         epsilon, optimizer_lr, loss_func, total_epoch, index, freeze):
@@ -114,10 +115,19 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     d = data.x.shape[1]
     c = max(data.y.max().item() + 1, data.y.shape[0])
 
-    # Enable if needed
-    k = wl_relabel(data, 30)
+    # data split for train, val, and test
+    train_idx = torch.where(data.train_mask)[0]
+    valid_idx = torch.where(data.val_mask)[0]
+    test_idx = torch.where(data.test_mask)[0]
+
+
+    # Enable to find number of distinct neighborhood structures if needed
+    k, labels = wl_relabel(data, 30)
     print(f'num distinct structures: {k}')
-    # ood, train, test distribution
+    # Evaluate OOD: check train, test distinct structures distribution
+    train_k, test_k, train_test_overlap_k = wl_train_test_ood(labels, train_idx, test_idx)
+    print(f'num distinct structures in training data: {train_k}, number of distinct structures in test data: {test_k}')
+    print(f'num distinct structures exists in both training data and test data: {train_test_overlap_k}')
 
     # 先算 distinct klog(k) distinct local structure
     # random search
@@ -142,10 +152,6 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
         # skip_connection=skip_connection
     )
     # summary(model, input_data=(data))
-
-    train_idx = torch.where(data.train_mask)[0]
-    valid_idx = torch.where(data.val_mask)[0]
-    test_idx = torch.where(data.test_mask)[0]
 
     optimizer = torch.optim.Adam(model.parameters(), lr=optimizer_lr)
     criterion = torch.nn.CrossEntropyLoss()
