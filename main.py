@@ -22,7 +22,6 @@ from pathlib import Path
 import sys
 from utils.text_hyperparameters import add_hyperparameter_text
 
-# TODO: Write hyperparameters on graph
 # TODO: improve result folder structure
 
 
@@ -241,10 +240,21 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     print(f'best test: {best_test}')
 
     # Plotting the loss, min cell is 0.1, large figure
-    plt.figure(figsize=(10, 5))
-    plt.plot(train_loss_list, label='Train Loss', color='blue')
-    plt.plot(valid_loss_list, label='Valid Loss', color='orange')
-    plt.plot(test_loss_list, label='Test Loss', color='green')
+    params = {
+        'dataset_name': 'Cora',
+        'num_mp_layers': num_mp_layers,
+        'num_fl_layers': num_fl_layers,
+        'mp_hidden_dim': mp_hidden_dim,
+        'fl_hidden_dim': fl_hidden_dim,
+        'epsilon': epsilon,
+        'optimizer_lr': optimizer_lr,
+        'freeze': freeze
+    }
+    fig, ax = add_hyperparameter_text(params)
+    # plt.figure(figsize=(10, 5))
+    ax.plot(train_loss_list, label='Train Loss', color='blue')
+    ax.plot(valid_loss_list, label='Valid Loss', color='orange')
+    ax.plot(test_loss_list, label='Test Loss', color='green')
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
     plt.title('Loss vs Epochs')
@@ -253,10 +263,11 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     # plt.clf()  # Clear the current figure for the next plot
     plt.close()
     # Plotting the acc in one figure
-    plt.figure(figsize=(10, 5))
-    plt.plot(train_accuracy_list, label='Train Accuracy', color='blue')
-    plt.plot(valid_accuracy_list, label='Valid Accuracy', color='orange')
-    plt.plot(test_accuracy_list, label='Test Accuracy', color='green')
+    fig, ax = add_hyperparameter_text(params)
+    # plt.figure(figsize=(10, 5))
+    ax.plot(train_accuracy_list, label='Train Accuracy', color='blue')
+    ax.plot(valid_accuracy_list, label='Valid Accuracy', color='orange')
+    ax.plot(test_accuracy_list, label='Test Accuracy', color='green')
     plt.xlabel('Epochs')
     plt.ylabel('Accuracy')
     plt.title('Accuracy vs Epochs')
@@ -292,9 +303,19 @@ def ablation_study_on_mp_depth(freeze):
         best_vals.append(best_val)
         best_tests.append(best_test)
         index += 1
-    plt.figure(figsize=(10, 5))
-    plt.plot(candidates, best_vals, label='Best Valid Accuracy', color='blue')
-    plt.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
+    params = {
+        'dataset_name': 'Cora',
+        'num_fl_layers': 2,
+        'mp_hidden_dim': 3000,
+        'fl_hidden_dim' : 512,
+        'epsilon': 5**0.5/2,
+        'optimizer_lr': 0.01,
+        'freeze': freeze
+    }
+    fig, ax = add_hyperparameter_text(params)
+    # plt.figure(figsize=(10, 5))
+    ax.plot(candidates, best_vals, label='Best Valid Accuracy', color='blue')
+    ax.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
     plt.xlabel('mp depth')
     plt.ylabel('Accuracy')
     plt.title('accuracy vs mp depth')
@@ -328,9 +349,19 @@ def ablation_study_on_mp_width(freeze):
         best_vals.append(best_val)
         best_tests.append(best_test)
         index += 1
-    plt.figure(figsize=(10, 5))
-    plt.plot(candidates, best_vals, label='Best Valid Accuracy', color='blue')
-    plt.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
+    params = {
+        'dataset_name': 'Cora',
+        'num_mp_layers': 3,
+        'num_fl_layers': 2,
+        'fl_hidden_dim' : 512,
+        'epsilon': 5**0.5/2,
+        'optimizer_lr': 0.01,
+        'freeze': freeze
+    }
+    fig, ax = add_hyperparameter_text(params)
+    # plt.figure(figsize=(10, 5))
+    ax.plot(candidates, best_vals, label='Best Valid Accuracy', color='blue')
+    ax.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
     plt.xlabel('mp width')
     plt.ylabel('Accuracy')
     plt.title('accuracy vs mp width')
@@ -365,9 +396,19 @@ def ablation_study_on_fc_depth(freeze):
         best_vals.append(best_val)
         best_tests.append(best_test)
         index += 1
-    plt.figure(figsize=(10, 5))
-    plt.plot(candidates, best_vals, label='Best Valid Accuracy', color='blue')
-    plt.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
+    params = {
+        'dataset_name': 'Cora',
+        'num_mp_layers': 3,
+        'mp_hidden_dim': 3000,
+        'fl_hidden_dim': 512,
+        'epsilon': 5**0.5/2,
+        'optimizer_lr': 0.01,
+        'freeze': freeze
+    }
+    fig, ax = add_hyperparameter_text(params)
+    # plt.figure(figsize=(10, 5))
+    ax.plot(candidates, best_vals, label='Best Valid Accuracy', color='blue')
+    ax.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
     plt.xlabel('fc depth')
     plt.ylabel('Accuracy')
     plt.title('accuracy vs fc depth')
@@ -402,9 +443,19 @@ def ablation_study_on_fc_width(freeze):
         best_vals.append(best_val)
         best_tests.append(best_test)
         index += 1
-    plt.figure(figsize=(10, 5))
-    plt.plot(candidates, best_vals, label='Best Valid Accuracy', color='blue')
-    plt.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
+    params = {
+        'dataset_name': 'Cora',
+        'num_mp_layers': 3,
+        'num_fl_layers': 2,
+        'mp_hidden_dim': 3000,
+        'epsilon': 5**0.5/2,
+        'optimizer_lr': 0.01,
+        'freeze': freeze
+    }
+    fig, ax = add_hyperparameter_text(params)
+    # plt.figure(figsize=(10, 5))
+    ax.plot(candidates, best_vals, label='Best Valid Accuracy', color='blue')
+    ax.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
     plt.xlabel('fc width')
     plt.ylabel('Accuracy')
     plt.title('accuracy vs fc width')
