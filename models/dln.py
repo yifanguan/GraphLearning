@@ -74,8 +74,8 @@ class InjectiveMP(MessagePassing):
 
     def forward(self, x, edge_index):
         num_nodes = x.size(0)
-        target, source = edge_index
-        deg = degree(source, num_nodes=num_nodes, dtype=x.dtype)
+        row, col = edge_index
+        deg = degree(col, num_nodes=num_nodes, dtype=x.dtype)
         norm_factor = 1 + self.eps + deg
         # norm = avg_degree(edge_index)
         # norm = max_degree(edge_index)
@@ -84,7 +84,7 @@ class InjectiveMP(MessagePassing):
         h = self.act(h)
         h = h / self.out_dim**0.5
         h = h / norm_factor.unsqueeze(1)
-        Ah = torch.zeros_like(h).index_add(0, target, h[source])
+        Ah = torch.zeros_like(h).index_add(0, row, h[col])
         
         return (1 + self.eps) * h + Ah
 
@@ -162,13 +162,5 @@ class DecoupleModel(nn.Module):
             for layer, proj in zip(self.fc_layers, self.injection_projs):
                 injected = proj(x_inject)
                 x = layer(self.act(x)) + injected
-                # print("Input dim:", layer.in_features)
-                # print("Output dim:", layer.out_features)
-                # print("Input dim:", proj.in_features)
-                # print("Output dim:", proj.out_features)
-                # print('injected: ')
-                # print(injected.shape)
-                # print('x: ')
-                # print(x.shape)
 
         return self.output_layer(x)

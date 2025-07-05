@@ -10,17 +10,20 @@ import torch_geometric.transforms as T
 # from utils.split import split_dataset
 import json
 import matplotlib.pyplot as plt
-import math
+# import math
 import random
 import numpy as np
-from torchinfo import summary
+# from torchinfo import summary
 from torch_geometric.data import Data
 from utils.wl_test import wl_relabel
 import argparse
 from datetime import datetime
 from pathlib import Path
+import sys
+from utils.text_hyperparameters import add_hyperparameter_text
 
-
+# TODO: Write hyperparameters on graph
+# TODO: improve result folder structure
 
 
 def fix_seed(seed=42):
@@ -237,7 +240,6 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     print(f'best validation: {best_val}')
     print(f'best test: {best_test}')
 
-    # TODO: print loss
     # Plotting the loss, min cell is 0.1, large figure
     plt.figure(figsize=(10, 5))
     plt.plot(train_loss_list, label='Train Loss', color='blue')
@@ -458,6 +460,9 @@ timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
 folder = Path(f"result_{timestamp}")
 folder.mkdir(parents=True, exist_ok=True)
 folder_name = folder.name
+
+# print the whole command line arguments
+print(sys.executable, ' '.join(sys.argv))
 
 if args.mp_depth:
     ablation_study_on_mp_depth(freeze)
