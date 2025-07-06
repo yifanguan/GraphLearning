@@ -301,7 +301,7 @@ def ablation_study_on_mp_depth(freeze):
     index = 0
     # best_vals = []
     # best_tests = []
-    candidates = [1,2,3,4,5,6]
+    candidates = [1,2,3,4,5,6,7]
     best_valid_accuracy_runs = np.zeros((num_runs, len(candidates)))
     best_test_accuracy_runs = np.zeros((num_runs, len(candidates)))
     for j, num_mp_layers in enumerate(candidates):
@@ -334,14 +334,14 @@ def ablation_study_on_mp_depth(freeze):
     # ax.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
 
     # Plot valid
-    ax.plot(candidates, val_mean_acc, label='Best Valid Accuracy', color='blue')                # Solid mean
-    ax.plot(candidates, val_mean_acc + val_std_acc, linestyle='--', color='blue', alpha=0.5)  # Mean + std
-    ax.plot(candidates, val_mean_acc - val_std_acc, linestyle='--', color='blue', alpha=0.5)  # Mean - std
+    ax.plot(candidates, val_mean_acc, label='Best Valid Accuracy', color='blue')              # Solid mean
+    ax.plot(candidates, val_mean_acc + val_std_acc, linestyle='--', color='blue', alpha=0.3)  # Mean + std
+    ax.plot(candidates, val_mean_acc - val_std_acc, linestyle='--', color='blue', alpha=0.3)  # Mean - std
 
     # Plot test
     ax.plot(candidates, test_mean_acc, label='Best Test Accuracy', color='red')                # Solid mean
-    ax.plot(candidates, test_mean_acc + test_std_acc, linestyle='--', color='red', alpha=0.5)  # Mean + std
-    ax.plot(candidates, test_mean_acc - test_std_acc, linestyle='--', color='red', alpha=0.5)  # Mean - std
+    ax.plot(candidates, test_mean_acc + test_std_acc, linestyle='--', color='red', alpha=0.3)  # Mean + std
+    ax.plot(candidates, test_mean_acc - test_std_acc, linestyle='--', color='red', alpha=0.3)  # Mean - std
 
     plt.xlabel('mp depth')
     plt.ylabel('Accuracy')
@@ -367,15 +367,27 @@ def ablation_study_on_mp_width(freeze):
     ###############################
     print("Begin abalation study")
     index = 0
-    best_vals = []
-    best_tests = []
-    candidates = [250,500,750,1000,2000,4000,8000]
-    for mp_hidden_dim in candidates:
-        best_val, best_test = run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
-                                  fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index, freeze)
-        best_vals.append(best_val)
-        best_tests.append(best_test)
+    # best_vals = []
+    # best_tests = []
+    candidates = [250,500,750,1000,2000,4000,8000,16000]
+    best_valid_accuracy_runs = np.zeros((num_runs, len(candidates)))
+    best_test_accuracy_runs = np.zeros((num_runs, len(candidates)))
+    for j, mp_hidden_dim in enumerate(candidates):
+        for i in range(num_runs):
+            best_val, best_test = run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
+                                      fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index, freeze)
+            best_valid_accuracy_runs[i][j] = best_val
+            best_test_accuracy_runs[i][j] = best_test
+        # best_vals.append(best_val)
+        # best_tests.append(best_test)
         index += 1
+
+    # Compute mean and std
+    val_mean_acc = np.mean(best_valid_accuracy_runs, axis=0)
+    test_mean_acc = np.mean(best_test_accuracy_runs, axis=0)
+    val_std_acc = np.std(best_valid_accuracy_runs, axis=0)
+    test_std_acc = np.std(best_test_accuracy_runs, axis=0)
+
     params = {
         'dataset_name': 'Cora',
         'num_mp_layers': 3,
@@ -386,9 +398,19 @@ def ablation_study_on_mp_width(freeze):
         'freeze': freeze
     }
     fig, ax = add_hyperparameter_text(params)
-    # plt.figure(figsize=(10, 5))
-    ax.plot(candidates, best_vals, label='Best Valid Accuracy', color='blue')
-    ax.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
+    # ax.plot(candidates, best_vals, label='Best Valid Accuracy', color='blue')
+    # ax.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
+
+    # Plot valid
+    ax.plot(candidates, val_mean_acc, label='Best Valid Accuracy', color='blue')              # Solid mean
+    ax.plot(candidates, val_mean_acc + val_std_acc, linestyle='--', color='blue', alpha=0.3)  # Mean + std
+    ax.plot(candidates, val_mean_acc - val_std_acc, linestyle='--', color='blue', alpha=0.3)  # Mean - std
+
+    # Plot test
+    ax.plot(candidates, test_mean_acc, label='Best Test Accuracy', color='red')                # Solid mean
+    ax.plot(candidates, test_mean_acc + test_std_acc, linestyle='--', color='red', alpha=0.3)  # Mean + std
+    ax.plot(candidates, test_mean_acc - test_std_acc, linestyle='--', color='red', alpha=0.3)  # Mean - std
+
     plt.xlabel('mp width')
     plt.ylabel('Accuracy')
     plt.title('accuracy vs mp width')
@@ -417,12 +439,24 @@ def ablation_study_on_fc_depth(freeze):
     best_vals = []
     best_tests = []
     candidates = [1,2,3,4,5,6]
-    for num_fl_layers in candidates:
-        best_val, best_test = run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
-                                  fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index, freeze)
-        best_vals.append(best_val)
-        best_tests.append(best_test)
+    best_valid_accuracy_runs = np.zeros((num_runs, len(candidates)))
+    best_test_accuracy_runs = np.zeros((num_runs, len(candidates)))
+    for j, num_fl_layers in enumerate(candidates):
+        for i in range(num_runs):
+            best_val, best_test = run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
+                                      fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index, freeze)
+            best_valid_accuracy_runs[i][j] = best_val
+            best_test_accuracy_runs[i][j] = best_test
+        # best_vals.append(best_val)
+        # best_tests.append(best_test)
         index += 1
+
+    # Compute mean and std
+    val_mean_acc = np.mean(best_valid_accuracy_runs, axis=0)
+    test_mean_acc = np.mean(best_test_accuracy_runs, axis=0)
+    val_std_acc = np.std(best_valid_accuracy_runs, axis=0)
+    test_std_acc = np.std(best_test_accuracy_runs, axis=0)
+
     params = {
         'dataset_name': 'Cora',
         'num_mp_layers': 3,
@@ -433,9 +467,19 @@ def ablation_study_on_fc_depth(freeze):
         'freeze': freeze
     }
     fig, ax = add_hyperparameter_text(params)
-    # plt.figure(figsize=(10, 5))
-    ax.plot(candidates, best_vals, label='Best Valid Accuracy', color='blue')
-    ax.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
+    # ax.plot(candidates, best_vals, label='Best Valid Accuracy', color='blue')
+    # ax.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
+
+    # Plot valid
+    ax.plot(candidates, val_mean_acc, label='Best Valid Accuracy', color='blue')              # Solid mean
+    ax.plot(candidates, val_mean_acc + val_std_acc, linestyle='--', color='blue', alpha=0.3)  # Mean + std
+    ax.plot(candidates, val_mean_acc - val_std_acc, linestyle='--', color='blue', alpha=0.3)  # Mean - std
+
+    # Plot test
+    ax.plot(candidates, test_mean_acc, label='Best Test Accuracy', color='red')                # Solid mean
+    ax.plot(candidates, test_mean_acc + test_std_acc, linestyle='--', color='red', alpha=0.3)  # Mean + std
+    ax.plot(candidates, test_mean_acc - test_std_acc, linestyle='--', color='red', alpha=0.3)  # Mean - std
+
     plt.xlabel('fc depth')
     plt.ylabel('Accuracy')
     plt.title('accuracy vs fc depth')
@@ -461,15 +505,27 @@ def ablation_study_on_fc_width(freeze):
     ###############################
     print("Begin abalation study")
     index = 0
-    best_vals = []
-    best_tests = []
+    # best_vals = []
+    # best_tests = []
     candidates = [16,32,64,128,256,512,1024,2048,4096]
-    for fl_hidden_dim in candidates:
-        best_val, best_test = run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
-                                  fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index, freeze)
-        best_vals.append(best_val)
-        best_tests.append(best_test)
+    best_valid_accuracy_runs = np.zeros((num_runs, len(candidates)))
+    best_test_accuracy_runs = np.zeros((num_runs, len(candidates)))
+    for j, fl_hidden_dim in enumerate(candidates):
+        for i in range(num_runs):
+            best_val, best_test = run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
+                                      fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index, freeze)
+            best_valid_accuracy_runs[i][j] = best_val
+            best_test_accuracy_runs[i][j] = best_test
+        # best_vals.append(best_val)
+        # best_tests.append(best_test)
         index += 1
+
+    # Compute mean and std
+    val_mean_acc = np.mean(best_valid_accuracy_runs, axis=0)
+    test_mean_acc = np.mean(best_test_accuracy_runs, axis=0)
+    val_std_acc = np.std(best_valid_accuracy_runs, axis=0)
+    test_std_acc = np.std(best_test_accuracy_runs, axis=0)
+
     params = {
         'dataset_name': 'Cora',
         'num_mp_layers': 3,
@@ -481,8 +537,19 @@ def ablation_study_on_fc_width(freeze):
     }
     fig, ax = add_hyperparameter_text(params)
     # plt.figure(figsize=(10, 5))
-    ax.plot(candidates, best_vals, label='Best Valid Accuracy', color='blue')
-    ax.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
+    # ax.plot(candidates, best_vals, label='Best Valid Accuracy', color='blue')
+    # ax.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
+
+    # Plot valid
+    ax.plot(candidates, val_mean_acc, label='Best Valid Accuracy', color='blue')              # Solid mean
+    ax.plot(candidates, val_mean_acc + val_std_acc, linestyle='--', color='blue', alpha=0.3)  # Mean + std
+    ax.plot(candidates, val_mean_acc - val_std_acc, linestyle='--', color='blue', alpha=0.3)  # Mean - std
+
+    # Plot test
+    ax.plot(candidates, test_mean_acc, label='Best Test Accuracy', color='red')                # Solid mean
+    ax.plot(candidates, test_mean_acc + test_std_acc, linestyle='--', color='red', alpha=0.3)  # Mean + std
+    ax.plot(candidates, test_mean_acc - test_std_acc, linestyle='--', color='red', alpha=0.3)  # Mean - std
+
     plt.xlabel('fc width')
     plt.ylabel('Accuracy')
     plt.title('accuracy vs fc width')
