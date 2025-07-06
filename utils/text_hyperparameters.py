@@ -20,9 +20,14 @@ def add_hyperparameter_text(params):
         line = "   ".join(f"{k}: {v}" for k, v in items[i:i+4])
         param_text += line + "\n"
 
-    fig.text(0.5, 0.92, param_text,
+    fig.text(0.5, 0.85, param_text,
              fontsize=10,
              ha='center',
              va='bottom')
+    # Add text well below the top edge
+# fig.text(0.5, 0.91, param_text.strip(),
+#          fontsize=9,
+#          ha='center',
+#          va='top')  # Align top of text at y=0.91
 
     return fig, ax

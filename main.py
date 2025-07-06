@@ -98,7 +98,7 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     # batch_normalization = False
     # skip_connection = False
     ###############################
-    fix_seed()
+    # fix_seed()
     dataset = Planetoid(root='data/Planetoid', name=dataset_name, transform=T.NormalizeFeatures())
     # print(f'Dataset: {dataset}:')
     # print('Number of graphs:', len(dataset))
@@ -129,7 +129,6 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     print(f'num distinct structures in training data: {train_k}, number of distinct structures in test data: {test_k}')
     print(f'num distinct structures exists in both training data and test data: {train_test_overlap_k}')
 
-    # 先算 distinct klog(k) distinct local structure
     # random search
     # initial_num_distinct_features = torch.unique(data.x, dim=0).float().size(0)
     # print('initial_num_distinct_features: ', initial_num_distinct_features)
@@ -300,15 +299,27 @@ def ablation_study_on_mp_depth(freeze):
     ###############################
     print("Begin abalation study")
     index = 0
-    best_vals = []
-    best_tests = []
+    # best_vals = []
+    # best_tests = []
     candidates = [1,2,3,4,5,6]
-    for num_mp_layers in candidates:
-        best_val, best_test = run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
-                                  fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index, freeze)
-        best_vals.append(best_val)
-        best_tests.append(best_test)
+    best_valid_accuracy_runs = np.zeros((num_runs, len(candidates)))
+    best_test_accuracy_runs = np.zeros((num_runs, len(candidates)))
+    for j, num_mp_layers in enumerate(candidates):
+        for i in range(num_runs):
+            best_val, best_test = run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
+                                      fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index, freeze)
+            best_valid_accuracy_runs[i][j] = best_val
+            best_test_accuracy_runs[i][j] = best_test
+        # best_vals.append(best_val)
+        # best_tests.append(best_test)
         index += 1
+
+    # Compute mean and std
+    val_mean_acc = np.mean(best_valid_accuracy_runs, axis=0)
+    test_mean_acc = np.mean(best_test_accuracy_runs, axis=0)
+    val_std_acc = np.std(best_valid_accuracy_runs, axis=0)
+    test_std_acc = np.std(best_test_accuracy_runs, axis=0)
+
     params = {
         'dataset_name': 'Cora',
         'num_fl_layers': 2,
@@ -319,9 +330,19 @@ def ablation_study_on_mp_depth(freeze):
         'freeze': freeze
     }
     fig, ax = add_hyperparameter_text(params)
-    # plt.figure(figsize=(10, 5))
-    ax.plot(candidates, best_vals, label='Best Valid Accuracy', color='blue')
-    ax.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
+    # ax.plot(candidates, best_vals, label='Best Valid Accuracy', color='blue')
+    # ax.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
+
+    # Plot valid
+    ax.plot(candidates, val_mean_acc, label='Best Valid Accuracy', color='blue')                # Solid mean
+    ax.plot(candidates, val_mean_acc + val_std_acc, linestyle='--', color='blue', alpha=0.5)  # Mean + std
+    ax.plot(candidates, val_mean_acc - val_std_acc, linestyle='--', color='blue', alpha=0.5)  # Mean - std
+
+    # Plot test
+    ax.plot(candidates, test_mean_acc, label='Best Test Accuracy', color='red')                # Solid mean
+    ax.plot(candidates, test_mean_acc + test_std_acc, linestyle='--', color='red', alpha=0.5)  # Mean + std
+    ax.plot(candidates, test_mean_acc - test_std_acc, linestyle='--', color='red', alpha=0.5)  # Mean - std
+
     plt.xlabel('mp depth')
     plt.ylabel('Accuracy')
     plt.title('accuracy vs mp depth')
@@ -505,6 +526,7 @@ parser.add_argument('--mp_width', action='store_true', help='message passing lay
 parser.add_argument('--fc_depth', action='store_true', help='fully connected layer depth')
 parser.add_argument('--fc_width', action='store_true', help='fully connected layer width')
 parser.add_argument('--train_mp', action='store_true', help='train message passing layers')
+parser.add_argument('--num_runs', type=int, default=1, help='num of runs per setting.')
 
 args = parser.parse_args()
 freeze = not args.train_mp
@@ -521,6 +543,9 @@ folder_name = folder.name
 # print the whole command line arguments
 print(sys.executable, ' '.join(sys.argv))
 
+num_runs = args.num_runs if args.num_runs > 0 else 1
+print('num_runs {}'.format(num_runs))
+
 if args.mp_depth:
     ablation_study_on_mp_depth(freeze)
 if args.mp_width:
@@ -529,6 +554,7 @@ if args.fc_depth:
     ablation_study_on_fc_depth(freeze)
 if args.fc_width:
     ablation_study_on_fc_width(freeze)
+
 
 # ablation_study()
 
