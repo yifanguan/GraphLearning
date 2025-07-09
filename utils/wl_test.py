@@ -66,14 +66,18 @@ def wl_relabel(graph: Data, h: int):
 
     Returns:
         k: number of distinct neighborhood structures
+        labels: dict for all nodes' labels
+        distinct_features_each_iteration: a list containing total number of distinct structures after each iteration of WL test
     """
     graph = to_networkx(graph, to_undirected=True)
     labels = {} # node -> label
     for node in graph.nodes():
-        labels[node] = graph.degree[node]
+        # labels[node] = graph.degree[node]
+        labels[node] = 0
     
     is_converge = False
     k = count_distinct(labels)
+    distinct_features_each_iteration = [k]
     # print('k is {}', k)
     for i in range(h):
         new_labels = {}
@@ -89,9 +93,10 @@ def wl_relabel(graph: Data, h: int):
 
         labels = new_labels
         k = new_k
-        # print("After Iteration {}, {} distinct structures, is converge? {}".format(i, k, is_converge))
+        distinct_features_each_iteration.append(k)
+        print("After Iteration {}, {} distinct structures, is converge? {}".format(i, k, is_converge))
 
-    return k, labels
+    return k, labels, distinct_features_each_iteration
 
 def wl_train_test_ood(labels, train_idx, test_idx):
     '''

@@ -40,7 +40,7 @@ class InjectiveMP(MessagePassing):
 
         self.W = nn.Linear(in_features=in_dim, out_features=out_dim)
         # set std of W
-        # self.adj_matrix = to_dense_adj(edge_index).squeeze(0) 
+        # self.adj_matrix = to_dense_adj(edge_index)'.squeeze(0) '
         # norm = self.spectral_norm(edge_index)
         # std = (1.0 / (1 + epsilon + norm))
         std = 1.0
