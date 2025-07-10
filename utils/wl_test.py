@@ -5,6 +5,9 @@ from hashlib import md5
 from torch_geometric.utils import to_networkx
 from torch_geometric.data import Data
 import torch
+from networkx.algorithms.graph_hashing import _hash_label, _neighborhood_aggregate
+from collections import Counter, defaultdict
+from torch_geometric.data import Batch
 
 
 def wl_hash(node_label, neighbor_labels):
@@ -146,3 +149,93 @@ def find_group(labels):
             if not found:
                 groups.append([i])
     return groups
+
+
+
+
+
+def weisfeiler_lehman_subgraph_hashes(
+    G,
+    edge_attr=None,
+    node_attr=None,
+    iterations=3,
+    digest_size=16,
+    include_initial_labels=False,
+):
+    """
+    Copy from networkx weisfeiler_lehman_subgraph_hashes
+    Modify it for node feature initialization 
+    """
+
+    def weisfeiler_lehman_step(G, labels, node_subgraph_hashes, edge_attr=None):
+        """
+        Apply neighborhood aggregation to each node
+        in the graph.
+        Computes a dictionary with labels for each node.
+        Appends the new hashed label to the dictionary of subgraph hashes
+        originating from and indexed by each node in G
+        """
+        new_labels = {}
+        for node in G.nodes():
+            label = _neighborhood_aggregate(G, node, labels, edge_attr=edge_attr)
+            hashed_label = _hash_label(label, digest_size)
+            new_labels[node] = hashed_label
+            node_subgraph_hashes[node].append(hashed_label)
+        return new_labels
+    
+    def _init_node_labels(G, edge_attr, node_attr):
+        if node_attr:
+            return {u: str(dd[node_attr]) for u, dd in G.nodes(data=True)}
+        elif edge_attr:
+            return {u: "" for u in G}
+        else:
+            return {u: "1" for u in G}
+
+    node_labels = _init_node_labels(G, edge_attr, node_attr)
+    if include_initial_labels:
+        node_subgraph_hashes = {
+            k: [_hash_label(v, digest_size)] for k, v in node_labels.items()
+        }
+    else:
+        node_subgraph_hashes = defaultdict(list)
+
+    for _ in range(iterations):
+        node_labels = weisfeiler_lehman_step(
+            G, node_labels, node_subgraph_hashes, edge_attr
+        )
+
+    return dict(node_subgraph_hashes)
+
+
+
+def networkx_wl_relabel(graph: Data, h: int):
+    '''
+    single graph version
+    '''
+    graph = to_networkx(graph, to_undirected=True)
+    node_labels = weisfeiler_lehman_subgraph_hashes(graph, iterations=h, include_initial_labels=False)
+    k = 0
+    for i in range(h):
+        node_labels_at_iteration_i = set()
+        for node, labels in node_labels.items():
+            node_labels_at_iteration_i.add(labels[i])
+        k = len(node_labels_at_iteration_i)
+        print(f'iteration {i}: has {k} distinct structures')
+    return k, node_labels
+
+
+def networkx_wl_relabel_multi_graphs(dataset, h: int):
+    '''
+    Dataset containing multiple graphs version
+    '''
+    batch = Batch.from_data_list(dataset)
+    graph = to_networkx(batch, to_undirected=True)
+    node_labels = weisfeiler_lehman_subgraph_hashes(graph, iterations=h, include_initial_labels=False)
+    k = 0
+    for i in range(h):
+        node_labels_at_iteration_i = set()
+        for node, labels in node_labels.items():
+            node_labels_at_iteration_i.add(labels[i])
+        k = len(node_labels_at_iteration_i)
+        print(f'iteration {i}: has {k} distinct structures')
+    return k, node_labels

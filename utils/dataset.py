@@ -1,6 +1,7 @@
 from torch_geometric.datasets import WebKB
 from torch_geometric.datasets import Planetoid
 from torch_geometric.datasets import LINKXDataset
+from torch_geometric.datasets import MNISTSuperpixels
 import torch_geometric.transforms as T
 
 def load_dataset(data_dir, dataset_name):
@@ -15,6 +16,8 @@ def load_dataset(data_dir, dataset_name):
         data = load_planetoid_dataset(data_dir, dataset_name)
     elif dataset_name in ('cornell5'):
         data = load_facebook_100_dataset(data_dir, dataset_name)
+    elif dataset_name in ('mnist'):
+        data = load_mnist_dataset(data_dir, dataset_name)
     else:
         raise ValueError('Invalid dataname')
     return data
@@ -57,6 +60,24 @@ def load_facebook_100_dataset(data_dir, name, norm_feature=True):
     data = dataset[0]
 
     return data
+
+def load_mnist_dataset(data_dir, name, norm_feature=True):
+    '''
+    MNIST Superpixels dataset contains multiple graphs
+    '''
+    if norm_feature:
+        transform = T.NormalizeFeatures()
+        dataset = (
+            MNISTSuperpixels(root=f'{data_dir}/MNISTSuperpixels', train=True, transform=transform) +
+            MNISTSuperpixels(root=f'{data_dir}/MNISTSuperpixels', train=False, transform=transform)
+        )
+    else:
+        dataset = (
+            MNISTSuperpixels(root=f'{data_dir}/MNISTSuperpixels', train=True) +
+            MNISTSuperpixels(root=f'{data_dir}/MNISTSuperpixels', train=False)
+        )
+
+    return dataset
 
 # class Dataset(InMemoryDataset):
 #     '''
