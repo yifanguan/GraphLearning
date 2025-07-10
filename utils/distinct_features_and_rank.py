@@ -9,6 +9,7 @@ from utils.wl_test import wl_relabel, find_group
 from utils.dataset import load_dataset
 import matplotlib.pyplot as plt
 import seaborn as sns
+from torch_geometric.data import Batch
 
 
 # dataset_name = 'Cora'
@@ -125,11 +126,13 @@ import seaborn as sns
 def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, tolerance=1e-5, dim_list=[50]):
     root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
     data_dir=f'{root_dir}/data'
-    data = load_dataset(data_dir=data_dir, dataset_name=dataset_name)
+    data = load_dataset(data_dir=data_dir, dataset_name=dataset_name, filter=None if dataset_name != 'mnist' else 0)
+    if dataset_name == 'mnist':
+        data = Batch.from_data_list(data)
 
     # WL Test:
     _, wl_labels, distinct_features_each_iteration = wl_relabel(data, mp_depth)
-    wl_groups = find_group(wl_labels)
+    # wl_groups = find_group(wl_labels)
     # Process the list for plotting purpose
     temp_list = []
     for i, k in enumerate(distinct_features_each_iteration):
@@ -167,7 +170,7 @@ def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, tolerance=1e
 
             dln = InjectiveMP(eps=5**0.5/2, in_dim=dim, out_dim=dim, freeze=True) # hidden_dim=dim
             h = dln(h, data.edge_index)
-            mp_groups = find_group(h)
+            # mp_groups = find_group(h)
             h_matrix = torch.unique(h, dim=0).float()
             
             print(f"H matrix: {h_matrix.size()}")
@@ -210,3 +213,94 @@ def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, tolerance=1e
     # Save the figure to pdf
     plt.savefig(f'{root_dir}/injective_plot/injective_{dataset_name}_mp_{mp_depth}_tolerance_{tolerance}.pdf', format='pdf', bbox_inches='tight')
     plt.show()
+
+
+# def generate_expressive_power_plot_multi_graph(dataset_name='mnist', mp_depth=6, tolerance=1e-5, dim_list=[50]):
+#     root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
+#     data_dir=f'{root_dir}/data'
+#     data = load_dataset(data_dir=data_dir, dataset_name=dataset_name)
+#     data = Batch.from_data_list(data)
+
+#     # WL Test:
+#     # _, wl_labels, distinct_features_each_iteration = wl_relabel(data, mp_depth)
+#     # wl_groups = find_group(wl_labels)
+#     # # Process the list for plotting purpose
+#     # temp_list = []
+#     # for i, k in enumerate(distinct_features_each_iteration):
+#     #     if i < len(distinct_features_each_iteration) - 1:
+#     #         temp_list.append(k)
+#     #     temp_list.append(k)
+#     # distinct_features_each_iteration = temp_list
+    
+
+#     # dim_list = [50, 150, 300, 500, 1000, 2000, 4000, 8000]
+#     dim_list = dim_list
+#     non_linear_res = []
+#     labels = [f"Non_linear_mp/dim={dim}" for dim in dim_list]
+#     distinct_node_feature_res = []
+#     distinct_node_feature_x = []
+
+#     for dim in dim_list:
+#         h = torch.ones((data.num_nodes, dim), dtype=torch.float32)
+
+#         distinct_rows_matrix = torch.unique(h, dim=0).float()
+
+#         rank_of_distinct_matrix = torch.linalg.matrix_rank(distinct_rows_matrix, tol=tolerance)
+#         print(f"\nRank of the distinct matrix: {rank_of_distinct_matrix.item()}")
+
+#         # (index, rank) pairs
+#         rank_non_linear = [(0, rank_of_distinct_matrix.item())]
+#         distinct_node_feature = [distinct_rows_matrix.size(0)]
+#         distinct_node_feature_x = [0]
+
+#         for i in range(1, mp_depth+1):
+#             rank_non_linear.append((i, rank_non_linear[-1][1]))
+
+#             distinct_node_feature.append(distinct_node_feature[-1])
+#             distinct_node_feature_x.append(i)
+
+#             dln = InjectiveMP(eps=5**0.5/2, in_dim=dim, out_dim=dim, freeze=True) # hidden_dim=dim
+#             h = dln(h, data.edge_index)
+#             mp_groups = find_group(h)
+#             h_matrix = torch.unique(h, dim=0).float()
+            
+#             print(f"H matrix: {h_matrix.size()}")
+#             rank_of_distinct_matrix_h = torch.linalg.matrix_rank(h_matrix, tol=tolerance)
+#             print(f"Rank of the distinct matrix: {rank_of_distinct_matrix_h.item()}")
+#             rank_non_linear.append((i, min(rank_of_distinct_matrix_h.item(), h_matrix.size(0))))
+#             distinct_node_feature.append(h_matrix.size(0))
+#             distinct_node_feature_x.append(i)
+#         non_linear_res.append(rank_non_linear)
+#         distinct_node_feature_res.append(distinct_node_feature)
+
+#     res = non_linear_res
+
+#     sns.set_theme(style="whitegrid") # Apply Seaborn's whitegrid style
+#     # Get a nice color palette from Seaborn
+#     palette = sns.color_palette("tab10", n_colors=2*len(res)+1)
+
+#     sns.set_theme(style="whitegrid") # Apply Seaborn styling
+#     plt.figure(figsize=(10, 6)) # Set the figure size
+#     plt.plot(distinct_node_feature_x, distinct_features_each_iteration, linestyle='-.', linewidth=1.5, color=palette[0], alpha=1, label="WL Test")
+#     for i, distinct_features in enumerate(distinct_node_feature_res):
+#         plt.plot(distinct_node_feature_x, distinct_features, linestyle='-', linewidth=1.5, color=palette[i+1], alpha=0.8,
+#                  label=f"Num_distinct_node_feature/dim={dim_list[i]}")
+
+#     for i, non_linear_res_data in enumerate(res):
+#         series_label = labels[i]
+#         x = [point[0] for point in non_linear_res_data]
+#         y = [point[1] for point in non_linear_res_data]
+#         plt.plot(x, y, linestyle='--', linewidth=1.5, color=palette[i+len(res)+1], alpha=0.8, label=series_label)
+
+#     # --- 4. Customize ---
+#     plt.title(f'{dataset_name}, tolerance: {tolerance}')
+#     plt.xlabel('Number of Message Passing Layers')
+#     plt.ylabel('Distinct Features and Their Ranks')
+#     plt.xlim(0, mp_depth) # Set x-axis limits
+
+#     # plt.legend() # Add legend (Seaborn usually adds one automatically)
+#     plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+#     plt.tight_layout()
+#     # Save the figure to pdf
+#     plt.savefig(f'{root_dir}/injective_plot/injective_{dataset_name}_mp_{mp_depth}_tolerance_{tolerance}.pdf', format='pdf', bbox_inches='tight')
+#     plt.show()

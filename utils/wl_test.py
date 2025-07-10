@@ -58,7 +58,7 @@ def count_distinct(labels):
 # WL test starts by assigning each node a label.
 # If a label is not provided, we often use something like the node degree as a proxy.
 # These labels are then updated over multiple iterations to reflect the structure of the graph.
-def wl_relabel(graph: Data, h: int):
+def wl_relabel(graph, h: int):
     """
     Perform h iterations of the Weisfeiler-Lehman Test relabeling on the input graph.
     Initially, each graph node use its degree as its initial state
@@ -150,8 +150,11 @@ def find_group(labels):
                 groups.append([i])
     return groups
 
-
-
+def wl_relabel_multigraph(data, h: int):
+    if not isinstance(data, Batch):
+        batch = Batch.from_data_list(data)
+    k, labels, distinct_features_each_iteration = wl_relabel(batch, h)
+    return k, labels, distinct_features_each_iteration
 
 
 def weisfeiler_lehman_subgraph_hashes(
@@ -228,7 +231,8 @@ def networkx_wl_relabel_multi_graphs(dataset, h: int):
     '''
     Dataset containing multiple graphs version
     '''
-    batch = Batch.from_data_list(dataset)
+    if not isinstance(dataset, Batch):
+        batch = Batch.from_data_list(dataset)
     graph = to_networkx(batch, to_undirected=True)
     node_labels = weisfeiler_lehman_subgraph_hashes(graph, iterations=h, include_initial_labels=False)
     k = 0

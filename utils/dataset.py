@@ -4,7 +4,7 @@ from torch_geometric.datasets import LINKXDataset
 from torch_geometric.datasets import MNISTSuperpixels
 import torch_geometric.transforms as T
 
-def load_dataset(data_dir, dataset_name):
+def load_dataset(data_dir, dataset_name, filter=None):
     """ Loader for Dataset
         Returns Dataset
     """
@@ -17,7 +17,7 @@ def load_dataset(data_dir, dataset_name):
     elif dataset_name in ('cornell5'):
         data = load_facebook_100_dataset(data_dir, dataset_name)
     elif dataset_name in ('mnist'):
-        data = load_mnist_dataset(data_dir, dataset_name)
+        data = load_mnist_dataset(data_dir, dataset_name, filter=filter)
     else:
         raise ValueError('Invalid dataname')
     return data
@@ -61,9 +61,11 @@ def load_facebook_100_dataset(data_dir, name, norm_feature=True):
 
     return data
 
-def load_mnist_dataset(data_dir, name, norm_feature=True):
+def load_mnist_dataset(data_dir, name, norm_feature=True, filter=None):
     '''
     MNIST Superpixels dataset contains multiple graphs
+
+    filter: digit filter
     '''
     if norm_feature:
         transform = T.NormalizeFeatures()
@@ -76,6 +78,7 @@ def load_mnist_dataset(data_dir, name, norm_feature=True):
             MNISTSuperpixels(root=f'{data_dir}/MNISTSuperpixels', train=True) +
             MNISTSuperpixels(root=f'{data_dir}/MNISTSuperpixels', train=False)
         )
+    dataset = [data for data in dataset if data.y.item() == filter]
 
     return dataset
 
