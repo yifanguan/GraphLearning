@@ -75,18 +75,20 @@ class InjectiveMP(MessagePassing):
     def forward(self, x, edge_index):
         num_nodes = x.size(0)
         row, col = edge_index
-        deg = degree(col, num_nodes=num_nodes, dtype=x.dtype)
-        norm_factor = 1 + self.eps + deg
+        # deg = degree(col, num_nodes=num_nodes, dtype=x.dtype)
+        # norm_factor = 1 + self.eps + deg
         # norm = avg_degree(edge_index)
         # norm = max_degree(edge_index)
 
         h = self.W(x)
         h = self.act(h)
         h = h / self.out_dim**0.5
-        h = h / norm_factor.unsqueeze(1)
+        # h = h / norm_factor.unsqueeze(1)
         Ah = torch.zeros_like(h).index_add(0, row, h[col])
         
         return (1 + self.eps) * h + Ah
+        # return h + Ah
+
 
 
 class DecoupleModel(nn.Module):

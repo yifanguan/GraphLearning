@@ -14,8 +14,8 @@ from utils.dataset import load_dataset
 
 root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
 data_dir=f'{root_dir}/data'
-data = load_dataset(data_dir=data_dir, dataset_name='cornell5')
-print(f'cornell5 data: {data}')
+data = load_dataset(data_dir=data_dir, dataset_name='texas')
+# print(f'cornell5 data: {data}')
 
 k, _, distinct_features_each_iteration = wl_relabel(data, 100)
 

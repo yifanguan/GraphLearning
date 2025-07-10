@@ -4,6 +4,7 @@ from hashlib import md5
 # from collections import Counter
 from torch_geometric.utils import to_networkx
 from torch_geometric.data import Data
+import torch
 
 
 def wl_hash(node_label, neighbor_labels):
@@ -84,7 +85,7 @@ def wl_relabel(graph: Data, h: int):
         for node in graph.nodes():
             new_label = wl_hash(labels[node], [labels[neighbor] for neighbor in graph.neighbors(node)])
             new_labels[node] = new_label
-        new_labels = reassign_label(labels, new_labels)
+        # new_labels = reassign_label(labels, new_labels)
         new_k = count_distinct(new_labels)
 
         if new_k == k:
@@ -119,3 +120,29 @@ def wl_train_test_ood(labels, train_idx, test_idx):
     train_test_intersection = train_distinct_set & test_distinct_set
 
     return len(train_distinct_set), len(test_distinct_set), len(train_test_intersection)
+
+
+def find_group(labels):
+    '''
+    Find group of nodes with the same color
+    '''
+    groups = {}
+    if isinstance(labels, dict):
+        for node, label in labels.items():
+            if label not in groups:
+                groups[label] = []
+            groups[label].append(node)
+        groups = list(groups.values())
+    if isinstance(labels, torch.Tensor):
+        groups = []
+        h_matrix = labels
+        for i, h in enumerate(h_matrix):
+            found = False
+            for group in groups:
+                node = group[0]
+                if torch.equal(h_matrix[node], h):
+                    found = True
+                    group.append(i)
+            if not found:
+                groups.append([i])
+    return groups

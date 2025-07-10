@@ -5,7 +5,7 @@ import sys, os
 # Add parent folder to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from models.dln import InjectiveMP
-from utils.wl_test import wl_relabel
+from utils.wl_test import wl_relabel, find_group
 from utils.dataset import load_dataset
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -128,7 +128,8 @@ def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, tolerance=1e
     data = load_dataset(data_dir=data_dir, dataset_name=dataset_name)
 
     # WL Test:
-    _, _, distinct_features_each_iteration = wl_relabel(data, mp_depth)
+    _, wl_labels, distinct_features_each_iteration = wl_relabel(data, mp_depth)
+    wl_groups = find_group(wl_labels)
     # Process the list for plotting purpose
     temp_list = []
     for i, k in enumerate(distinct_features_each_iteration):
@@ -136,6 +137,7 @@ def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, tolerance=1e
             temp_list.append(k)
         temp_list.append(k)
     distinct_features_each_iteration = temp_list
+    
 
     # dim_list = [50, 150, 300, 500, 1000, 2000, 4000, 8000]
     dim_list = dim_list
@@ -165,6 +167,7 @@ def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, tolerance=1e
 
             dln = InjectiveMP(eps=5**0.5/2, in_dim=dim, out_dim=dim, freeze=True) # hidden_dim=dim
             h = dln(h, data.edge_index)
+            mp_groups = find_group(h)
             h_matrix = torch.unique(h, dim=0).float()
             
             print(f"H matrix: {h_matrix.size()}")
