@@ -27,7 +27,7 @@ class InjectiveMP(MessagePassing):
                  eps=2.0**0.5,
                  in_dim: int = -1,
                  out_dim: int = 300,
-                 act=F.relu,
+                 act=F.tanh,
                  freeze: bool = True):
         # Initialize the MessagePassing base class with 'add' aggregation
         super().__init__(aggr='add')
@@ -75,19 +75,18 @@ class InjectiveMP(MessagePassing):
     def forward(self, x, edge_index):
         num_nodes = x.size(0)
         row, col = edge_index
-        # deg = degree(col, num_nodes=num_nodes, dtype=x.dtype)
-        # norm_factor = 1 + self.eps + deg
+        deg = degree(col, num_nodes=num_nodes, dtype=x.dtype)
+        norm_factor = 1 + self.eps + deg
         # norm = avg_degree(edge_index)
         # norm = max_degree(edge_index)
 
         h = self.W(x)
         h = self.act(h)
         h = h / self.out_dim**0.5
-        # h = h / norm_factor.unsqueeze(1)
+        h = h / norm_factor.unsqueeze(1)
         Ah = torch.zeros_like(h).index_add(0, row, h[col])
-        
+
         return (1 + self.eps) * h + Ah
-        # return h + Ah
 
 
 
@@ -166,3 +165,25 @@ class DecoupleModel(nn.Module):
                 x = layer(self.act(x)) + injected
 
         return self.output_layer(x)
+
+
+
+class MPOnlyModel(nn.Module):
+    """
+    A truncated version of our decouple model used with only stacked message passing layers
+    """
+    def __init__(self, model):
+        super().__init__()
+        self.mp_layers = model.mp_layers
+
+    def forward(self, h, edge_index, index):
+        """
+        Forward pass through the stacked GNN layers.
+        Returns:
+            torch.Tensor: Node features after passing through all layers.
+        """
+        h = self.mp_layers[index](h, edge_index)
+
+        return h
+
+

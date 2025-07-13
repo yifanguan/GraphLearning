@@ -127,6 +127,7 @@ def wl_train_test_ood(labels, train_idx, test_idx):
 
 def find_group(labels):
     '''
+    Debug utils
     Find group of nodes with the same color
     '''
     groups = {}

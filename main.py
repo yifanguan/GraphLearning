@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 import sys
 from utils.text_hyperparameters import add_hyperparameter_text
+from utils.dataset import load_dataset
 
 # TODO: improve result folder structure
 # TODO: dashed line for std result after running multiple runs
@@ -99,14 +100,14 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     # skip_connection = False
     ###############################
     # fix_seed()
-    dataset = Planetoid(root='data/Planetoid', name=dataset_name, transform=T.NormalizeFeatures())
+    # dataset = Planetoid(root='data/Planetoid', name=dataset_name, transform=T.NormalizeFeatures())
     # print(f'Dataset: {dataset}:')
     # print('Number of graphs:', len(dataset))
     # print('Number of features:', dataset.num_features)
     # print('Number of classes:', dataset.num_classes)
 
-    data = dataset[0]  # Cora has only one graph
-
+    # data = dataset[0]  # Cora has only one graph
+    data = load_dataset(data_dir='data', dataset_name=dataset_name)
     # print(data)
     # print('Number of nodes:', data.num_nodes)
     # print('Number of edges:', data.num_edges)
@@ -122,7 +123,7 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
 
 
     # Enable to find number of distinct neighborhood structures if needed
-    k, labels = wl_relabel(data, 30)
+    k, labels, _ = wl_relabel(data, 30)
     print(f'num distinct structures: {k}')
     # Evaluate OOD: check train, test distinct structures distribution
     train_k, test_k, train_test_overlap_k = wl_train_test_ood(labels, train_idx, test_idx)
@@ -280,6 +281,8 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     plt.savefig('{}/accuracy_cora{}_{}.png'.format(folder_name, index, timestamp))
     # plt.clf()  # Clear the current figure for the next plot
     plt.close()
+
+    torch.save(model.state_dict(), 'saved_models/model_weights.pth')
 
     return best_val, best_test
 
