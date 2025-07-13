@@ -79,7 +79,7 @@ def evaluate(model, criterion, data, train_split_idx, validation_split_idx, test
 
 
 def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim,
-        epsilon, optimizer_lr, loss_func, total_epoch, index, freeze):
+        epsilon, optimizer_lr, loss_func, total_epoch, index, freeze, save_model=False):
     ###############################
     # hardcoded value goes here!!!!
     # dataset_name = 'Cora'
@@ -123,12 +123,12 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
 
 
     # Enable to find number of distinct neighborhood structures if needed
-    k, labels, _ = wl_relabel(data, 30)
-    print(f'num distinct structures: {k}')
-    # Evaluate OOD: check train, test distinct structures distribution
-    train_k, test_k, train_test_overlap_k = wl_train_test_ood(labels, train_idx, test_idx)
-    print(f'num distinct structures in training data: {train_k}, number of distinct structures in test data: {test_k}')
-    print(f'num distinct structures exists in both training data and test data: {train_test_overlap_k}')
+    # k, labels, _ = wl_relabel(data, 30)
+    # print(f'num distinct structures: {k}')
+    # # Evaluate OOD: check train, test distinct structures distribution
+    # train_k, test_k, train_test_overlap_k = wl_train_test_ood(labels, train_idx, test_idx)
+    # print(f'num distinct structures in training data: {train_k}, number of distinct structures in test data: {test_k}')
+    # print(f'num distinct structures exists in both training data and test data: {train_test_overlap_k}')
 
     # random search
     # initial_num_distinct_features = torch.unique(data.x, dim=0).float().size(0)
@@ -256,6 +256,21 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
         'optimizer_lr': optimizer_lr,
         'freeze': freeze
     }
+    
+    # in case run() is executed in other files other than main.py
+    try:
+        timestamp
+    except NameError:
+        now = datetime.now()
+        timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
+    try:
+        folder_name
+    except NameError:
+        # Create folder for results
+        folder = Path(f"result_{timestamp}")
+        folder.mkdir(parents=True, exist_ok=True)
+        folder_name = folder.name
+
     fig, ax = add_hyperparameter_text(params)
     # plt.figure(figsize=(10, 5))
     ax.plot(train_loss_list, label='Train Loss', color='blue')
@@ -282,9 +297,10 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     # plt.clf()  # Clear the current figure for the next plot
     plt.close()
 
-    torch.save(model.state_dict(), 'saved_models/model_weights.pth')
+    if save_model:
+        torch.save(model.state_dict(), F'saved_models/model_weights_{dataset_name}_{num_mp_layers}_{mp_hidden_dim}_{num_fl_layers}_{fl_hidden_dim}.pth')
 
-    return best_val, best_test
+    return best_val, best_test, model
 
 def ablation_study_on_mp_depth(freeze):
     ###############################
@@ -590,56 +606,57 @@ def ablation_study(freeze):
 
 
 
-parser = argparse.ArgumentParser(description="Process experiment arguments")
-parser.add_argument('--mp_depth', action='store_true', help='message passing layer depth')
-parser.add_argument('--mp_width', action='store_true', help='message passing layer width')
-parser.add_argument('--fc_depth', action='store_true', help='fully connected layer depth')
-parser.add_argument('--fc_width', action='store_true', help='fully connected layer width')
-parser.add_argument('--train_mp', action='store_true', help='train message passing layers')
-parser.add_argument('--num_runs', type=int, default=1, help='num of runs per setting.')
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Process experiment arguments")
+    parser.add_argument('--mp_depth', action='store_true', help='message passing layer depth')
+    parser.add_argument('--mp_width', action='store_true', help='message passing layer width')
+    parser.add_argument('--fc_depth', action='store_true', help='fully connected layer depth')
+    parser.add_argument('--fc_width', action='store_true', help='fully connected layer width')
+    parser.add_argument('--train_mp', action='store_true', help='train message passing layers')
+    parser.add_argument('--num_runs', type=int, default=1, help='num of runs per setting.')
 
-args = parser.parse_args()
-freeze = not args.train_mp
+    args = parser.parse_args()
+    freeze = not args.train_mp
 
-# For filename
-now = datetime.now()
-timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
+    # For filename
+    now = datetime.now()
+    timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
 
-# Create folder for results
-folder = Path(f"result_{timestamp}")
-folder.mkdir(parents=True, exist_ok=True)
-folder_name = folder.name
+    # Create folder for results
+    folder = Path(f"result_{timestamp}")
+    folder.mkdir(parents=True, exist_ok=True)
+    folder_name = folder.name
 
-# print the whole command line arguments
-print(sys.executable, ' '.join(sys.argv))
+    # print the whole command line arguments
+    print(sys.executable, ' '.join(sys.argv))
 
-num_runs = args.num_runs if args.num_runs > 0 else 1
-print('num_runs {}'.format(num_runs))
+    num_runs = args.num_runs if args.num_runs > 0 else 1
+    print('num_runs {}'.format(num_runs))
 
-if args.mp_depth:
-    ablation_study_on_mp_depth(freeze)
-if args.mp_width:
-    ablation_study_on_mp_width(freeze)
-if args.fc_depth:
-    ablation_study_on_fc_depth(freeze)
-if args.fc_width:
-    ablation_study_on_fc_width(freeze)
+    if args.mp_depth:
+        ablation_study_on_mp_depth(freeze)
+    if args.mp_width:
+        ablation_study_on_mp_width(freeze)
+    if args.fc_depth:
+        ablation_study_on_fc_depth(freeze)
+    if args.fc_width:
+        ablation_study_on_fc_width(freeze)
 
 
-# ablation_study()
+    # ablation_study()
 
-# dataset_name = 'Cora'
-# num_mp_layers = 4
-# num_fl_layers = 2 # number of mlp layer
-# mp_hidden_dim = 4000
-# fl_hidden_dim = 512
-# epsilon = 5**0.5/2
-# optimizer_lr = 0.01
-# # weight_decay=5e-4
-# loss_func = 'CrossEntropyLoss'
-# total_epoch = 300
-# ###############################
-# index = 10000
-# run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
-#     fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index)
+    # dataset_name = 'Cora'
+    # num_mp_layers = 4
+    # num_fl_layers = 2 # number of mlp layer
+    # mp_hidden_dim = 4000
+    # fl_hidden_dim = 512
+    # epsilon = 5**0.5/2
+    # optimizer_lr = 0.01
+    # # weight_decay=5e-4
+    # loss_func = 'CrossEntropyLoss'
+    # total_epoch = 300
+    # ###############################
+    # index = 10000
+    # run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
+    #     fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index)
 
