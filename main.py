@@ -22,6 +22,7 @@ from pathlib import Path
 import sys
 from utils.text_hyperparameters import add_hyperparameter_text
 from utils.dataset import load_dataset
+from utils.data_split_util import rand_train_test_idx
 
 # TODO: improve result folder structure
 # TODO: dashed line for std result after running multiple runs
@@ -117,9 +118,12 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     c = max(data.y.max().item() + 1, data.y.shape[0])
 
     # data split for train, val, and test
-    train_idx = torch.where(data.train_mask)[0]
-    valid_idx = torch.where(data.val_mask)[0]
-    test_idx = torch.where(data.test_mask)[0]
+    if hasattr(data, 'train_mask'):
+        train_idx = torch.where(data.train_mask)[0]
+        valid_idx = torch.where(data.val_mask)[0]
+        test_idx = torch.where(data.test_mask)[0]
+    else:
+        train_idx, valid_idx, test_idx = rand_train_test_idx(data.y, train_prop=0.6, valid_prop=0.2)
 
 
     # Enable to find number of distinct neighborhood structures if needed
