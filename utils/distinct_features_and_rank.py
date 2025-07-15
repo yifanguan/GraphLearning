@@ -125,13 +125,18 @@ from torch_geometric.nn import GIN
 # plt.savefig(f'injective_tolerance_{tolerance}.pdf', format='pdf', bbox_inches='tight')
 # plt.show()
 
+def unique_rows_with_tolerance(x, per_item_tolerance=1e-4, total_tolerance=1e-4):
+    rounded = torch.round(x / per_item_tolerance) * per_item_tolerance
+    unique_rows = torch.unique(rounded, dim=0)
+    return unique_rows.size(0)
+
 
 def embedding_rank(x: torch.Tensor, tol=1e-15):
     x_unique = torch.unique(x, dim=0)
     x_unique = x_unique.double()
     print(f"H matrix: {x_unique.size()}")
     return x_unique.size(0), torch.linalg.matrix_rank(x_unique, tol=tol)
-
+    # return unique_rows_with_tolerance(x_unique), torch.linalg.matrix_rank(x_unique, tol=tol)
 
 def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, tolerance=1e-5, dim_list=[50]):
     root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
@@ -188,6 +193,7 @@ def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, tolerance=1e
             # h_matrix = torch.unique(h, dim=0).double()
             
             num_distinct_features, rank_of_distinct_matrix_h = embedding_rank(h, tol=tolerance)
+            print(f"num distinct structures: {num_distinct_features}")
             print(f"Rank of the distinct matrix: {rank_of_distinct_matrix_h.item()}")
             rank_non_linear.append((i, min(rank_of_distinct_matrix_h.item(), num_distinct_features)))
             distinct_node_feature.append(num_distinct_features)
@@ -224,8 +230,8 @@ def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, tolerance=1e
     plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     plt.tight_layout()
     # Save the figure to pdf
-    plt.savefig(f'{root_dir}/injective_plot/injective_{dataset_name}_mp_{mp_depth}_tolerance_{tolerance}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.pdf', format='pdf', bbox_inches='tight')
-    plt.show()
+    plt.savefig(f'{root_dir}/injective_plot/injective_{dataset_name}_mp_{mp_depth}_tolerance_{tolerance}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.png', bbox_inches='tight')
+    # plt.show()
 
 
 # def generate_expressive_power_plot_multi_graph(dataset_name='mnist', mp_depth=6, tolerance=1e-5, dim_list=[50]):
@@ -383,6 +389,7 @@ def generate_expressive_power_plot_with_training(dataset_name='Cora', mp_depth=6
             # mp_groups = find_group(h)
 
             num_distinct_features, rank_of_distinct_matrix_h = embedding_rank(h, tol=tolerance)
+            print(f"num distinct structures: {num_distinct_features}")
             print(f"Rank of the distinct matrix: {rank_of_distinct_matrix_h.item()}")
             rank_non_linear.append((i, min(rank_of_distinct_matrix_h.item(), num_distinct_features)))            
             distinct_node_feature.append(num_distinct_features)
@@ -419,7 +426,7 @@ def generate_expressive_power_plot_with_training(dataset_name='Cora', mp_depth=6
     plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     plt.tight_layout()
     # Save the figure to pdf
-    plt.savefig(f'{root_dir}/injective_plot/train_injective_{dataset_name}_mp_{mp_depth}_tolerance_{tolerance}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.pdf', format='pdf', bbox_inches='tight')
+    plt.savefig(f'{root_dir}/injective_plot/train_injective_{dataset_name}_mp_{mp_depth}_tolerance_{tolerance}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.png', bbox_inches='tight')
     plt.show()
 
 
@@ -533,6 +540,6 @@ def generate_expressive_power_plot_transfer_learning(dataset_name='Cora', mp_dep
     plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     plt.tight_layout()
     # Save the figure to pdf
-    plt.savefig(f'{root_dir}/injective_plot/injective_{dataset_name}_mp_{mp_depth}_tolerance_{tolerance}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.pdf', format='pdf', bbox_inches='tight')
+    plt.savefig(f'{root_dir}/injective_plot/injective_{dataset_name}_mp_{mp_depth}_tolerance_{tolerance}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.png', bbox_inches='tight')
     plt.show()
 

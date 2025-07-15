@@ -18,15 +18,17 @@ from utils.wl_test import networkx_wl_relabel, networkx_wl_relabel_multi_graphs
 # squirrel 2197 distinct features, 4 wl iterations
 # chameleon 808 distinct features, 3 wl iterations
 # ogbn-arxiv 162564 distinct features, 7 wl iterations
-# ogbn-products 162564 distinct features, 7 wl iterations
 # ogbn-proteins 128261 distinct features, 3 wl iterations
 
+# ogbn-products 162564 distinct features, 7 wl iterations
 
-root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
-data_dir=f'{root_dir}/data'
-data = load_dataset(data_dir=data_dir, dataset_name='texas')
-k, _, distinct_features_each_iteration = wl_relabel(data, 30)
-print(f'texas data: {data}')
+
+
+# root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
+# data_dir=f'{root_dir}/data'
+# data = load_dataset(data_dir=data_dir, dataset_name='texas')
+# k, _, distinct_features_each_iteration = wl_relabel(data, 30)
+# print(f'texas data: {data}')
 
 # k, _, distinct_features_each_iteration = wl_relabel(data, 30)
 
@@ -116,6 +118,13 @@ print(f'texas data: {data}')
 # print(data)
 # k, _, distinct_features_each_iteration = wl_relabel(data, 50)
 # print(k)
+
+# root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
+# data_dir=f'{root_dir}/data'
+# data = load_dataset(data_dir=data_dir, dataset_name='minesweeper')
+# k, node_labels = networkx_wl_relabel(data, 50)
+# print(k)
+# print(node_labels[0])
 
 # root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
 # data_dir=f'{root_dir}/data'
