@@ -244,3 +244,45 @@ def networkx_wl_relabel_multi_graphs(dataset, h: int):
         k = len(node_labels_at_iteration_i)
         print(f'iteration {i}: has {k} distinct structures')
     return k, node_labels
+
+
+import torch
+
+def color_refinement(edge_index, num_nodes, num_iterations=10):
+    # Initialize all nodes with the same color
+    colors = torch.zeros(num_nodes, dtype=torch.long)
+
+    for step in range(num_iterations):
+        # Gather multiset of neighbor colors for each node
+        multiset = [[] for _ in range(num_nodes)]
+        src, dst = edge_index
+
+        for u, v in zip(src.tolist(), dst.tolist()):
+            multiset[v].append(colors[u].item())
+
+        # Canonicalize and map to new colors
+        signatures = [(colors[i].item(), tuple(sorted(ms))) for i, ms in enumerate(multiset)]
+        color_map = {}
+        new_colors = torch.zeros_like(colors)
+        for i, sig in enumerate(signatures):
+            if sig not in color_map:
+                color_map[sig] = len(color_map)
+            new_colors[i] = color_map[sig]
+
+        print(f"WL Step {step+1}: {len(color_map)} distinct colors")
+
+        # Check for stabilization
+        if torch.equal(new_colors, colors):
+            print(f"Coloring stabilized at step {step+1}")
+            break
+
+        colors = new_colors
+
+    return colors
+
+
+def adam_wl_refinement(data, edge_index):
+    # Run WL refinement
+    final_colors = color_refinement(edge_index, num_nodes=data.num_nodes, num_iterations=100)
+    num_distinct = len(torch.unique(final_colors))
+    print(f"Final number of distinct WL colors: {num_distinct}")

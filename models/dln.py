@@ -111,14 +111,15 @@ class DecoupleModel(nn.Module):
                 num_fl_layers: int = 2,
                 eps = 2.0**0.5,
                 act=F.relu,
-                freeze=True
-                # dropout: float = 0.2,
+                freeze=True,
+                dropout: float = 0
                 # batch_normalization: bool = False,
                 # skip_connection: bool = True,
                 #first_layer_linear: bool = True
                 ):
         super().__init__()
         self.act = act
+        self.dropout = dropout
 
         # Message passing layers
         self.mp_layers = nn.ModuleList([
@@ -163,9 +164,9 @@ class DecoupleModel(nn.Module):
             for layer, proj in zip(self.fc_layers, self.injection_projs):
                 injected = proj(x_inject)
                 x = layer(self.act(x)) + injected
+                x = F.dropout(x, p=self.dropout, training=self.training)
 
         return self.output_layer(x)
-
 
 
 class MPOnlyModel(nn.Module):
