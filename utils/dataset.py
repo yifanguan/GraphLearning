@@ -9,9 +9,11 @@ from torch_geometric.datasets import HeterophilousGraphDataset
 from torch_geometric.data import Data
 import torch_geometric.transforms as T
 
-from ogb.nodeproppred import NodePropPredDataset, PygNodePropPredDataset, DglNodePropPredDataset
+# from ogb.nodeproppred.dataset_dgl import DglNodePropPredDataset
 
-import dgl.function as fn
+# from ogb.nodeproppred import NodePropPredDataset, PygNodePropPredDataset
+
+# import dgl.function as fn
 
 import numpy as np
 import torch
