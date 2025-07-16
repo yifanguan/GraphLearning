@@ -1,4 +1,4 @@
-from utils.wl_test import wl_relabel, wl_relabel_multigraph
+from utils.wl_test import wl_relabel, wl_relabel_multigraph, adam_wl_refinement
 from utils.dataset import load_dataset 
 from utils.wl_test import networkx_wl_relabel, networkx_wl_relabel_multi_graphs
 
@@ -188,3 +188,25 @@ print(f'cornell5 data: {data}')
 # k, _, distinct_features_each_iteration = wl_relabel(data, 30)
 # print(k)
 
+
+# root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
+# data_dir=f'{root_dir}/data'
+# data = load_dataset(data_dir=data_dir, dataset_name='REDDIT-BINARY')
+# print(data)
+# k, _, distinct_features_each_iteration = wl_relabel(data, 30)
+# print(k)
+
+
+
+# root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
+# data_dir=f'{root_dir}/data'
+# data = load_dataset(data_dir=data_dir, dataset_name='reddit')
+# adam_wl_refinement(data, data.edge_index)
+# print(data)
+# k, _, distinct_features_each_iteration = wl_relabel(data, 30)
+# print(k)
+
+root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
+data_dir=f'{root_dir}/data'
+data = load_dataset(data_dir=data_dir, dataset_name='citeseer')
+k, _, distinct_features_each_iteration = wl_relabel(data, 30)

@@ -1,4 +1,4 @@
-from main import run_overfitting_understanding
+from main import run_with_regularization
 from models.dln import DecoupleModel
 from tqdm import tqdm
 from torch_geometric.datasets import Planetoid
@@ -23,33 +23,37 @@ from utils.data_split_util import rand_train_test_idx
 
 
 
-def overfit_experiment():
+def regularization_experiment(dataset_name, num_mp_layers=3, num_fl_layers=2,
+                                mp_hidden_dim=3000, fl_hidden_dim=512, epsilon=5**0.5/2, optimizer_lr=0.01,
+                                loss_func='CrossEntropyLoss', total_epoch=400,
+                                freeze=False):
     ###############################
     # Experiment setup
-    dataset_name = 'Cora'
-    num_mp_layers = 3
-    num_fl_layers = 2 # number of mlp layer
-    mp_hidden_dim = 3000
-    fl_hidden_dim = 512
-    epsilon = 5**0.5/2
-    optimizer_lr = 0.01
-    # weight_decay=5e-4
-    loss_func = 'CrossEntropyLoss'
-    total_epoch = 400
-    freeze=False
-    ###############################
-    extra_data_rate = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
-    best_vals = np.zeros(len(extra_data_rate))
-    best_tests = np.zeros(len(extra_data_rate))
-    for i, rate in enumerate(extra_data_rate):
-        best_val, best_test, _ = run_overfitting_understanding(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim,
-                                                                fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index=0,
-                                                                freeze=freeze, extra_train_data_rate=rate)
+    # dataset_name = 'Cora'
+    # num_mp_layers = 3
+    # num_fl_layers = 2 # number of mlp layer
+    # mp_hidden_dim = 3000
+    # fl_hidden_dim = 512
+    # epsilon = 5**0.5/2
+    # optimizer_lr = 0.01
+    # # weight_decay=5e-4
+    # loss_func = 'CrossEntropyLoss'
+    # total_epoch = 400
+    # freeze=False
+    # ###############################
+    weight_decays = [1e-2, 5e-2, 1e-3, 5e-4, 1e-4, 1e-5, 0]
+    best_vals = np.zeros(len(weight_decays))
+    best_tests = np.zeros(len(weight_decays))
+    for i, weight_decay in enumerate(weight_decays):
+        best_val, best_test, _ = run_with_regularization(dataset_name, 'AdamW', weight_decay, num_mp_layers, num_fl_layers, mp_hidden_dim,
+                                                         fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index=0,
+                                                         freeze=freeze)
         best_vals[i] = best_val
         best_tests[i] = best_test
 
     params = {
         'dataset_name': dataset_name,
+        'num_mp_layers': num_mp_layers,
         'num_fl_layers': num_fl_layers,
         'mp_hidden_dim': mp_hidden_dim,
         'fl_hidden_dim' : fl_hidden_dim,
@@ -58,16 +62,73 @@ def overfit_experiment():
         'freeze': freeze
     }
     fig, ax = add_hyperparameter_text(params)
-    ax.plot(extra_data_rate, best_vals, label='Best Valid Accuracy', color='blue')
-    ax.plot(extra_data_rate, best_tests, label='Best Test Accuracy', color='red')
+    # Plot with evenly spaced points
+    ax.plot(range(len(weight_decays)), best_vals, label='Best Valid Accuracy', color='blue', marker='o')
+    ax.plot(range(len(weight_decays)), best_tests, label='Best Test Accuracy', color='red', marker='o')
 
-    plt.xlabel('Extra train data rate')
+    ax.set_xticks(range(len(weight_decays)))
+    ax.set_xticklabels(weight_decays)
+
+    plt.xlabel('Weight Decay')
     plt.ylabel('Accuracy')
-    plt.title('accuracy vs Extra train data')
+    plt.title('accuracy vs weight decay')
     plt.legend()
-    plt.savefig('{}/{}_overfit_experiment_accuracy_{}.png'.format(folder_name, dataset_name, timestamp))
+    plt.savefig('{}/{}_adamw_weight_decay_experiment_accuracy_{}.png'.format(folder_name, dataset_name, timestamp))
     plt.clf()  # Clear the current figure for the next plot
 
+
+def regularization_experiment_dropout(dataset_name, num_mp_layers=3, num_fl_layers=2,
+                                        mp_hidden_dim=3000, fl_hidden_dim=512, epsilon=5**0.5/2, optimizer_lr=0.01,
+                                        loss_func='CrossEntropyLoss', total_epoch=400,
+                                        freeze=False):
+    ###############################
+    # Experiment setup
+    # dataset_name = 'Cora'
+    # num_mp_layers = 3
+    # num_fl_layers = 2 # number of mlp layer
+    # mp_hidden_dim = 3000
+    # fl_hidden_dim = 512
+    # epsilon = 5**0.5/2
+    # optimizer_lr = 0.01
+    weight_decay=0
+    # loss_func = 'CrossEntropyLoss'
+    # total_epoch = 400
+    # freeze=False
+    ###############################
+    dropout_rates = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    best_vals = np.zeros(len(dropout_rates))
+    best_tests = np.zeros(len(dropout_rates))
+    for i, dropout in enumerate(dropout_rates):
+        best_val, best_test, _ = run_with_regularization(dataset_name, 'AdamW', weight_decay, num_mp_layers, num_fl_layers, mp_hidden_dim,
+                                                         fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index=0,
+                                                         freeze=freeze, dropout=dropout)
+        best_vals[i] = best_val
+        best_tests[i] = best_test
+
+    params = {
+        'dataset_name': dataset_name,
+        'num_mp_layers': num_mp_layers,
+        'num_fl_layers': num_fl_layers,
+        'mp_hidden_dim': mp_hidden_dim,
+        'fl_hidden_dim' : fl_hidden_dim,
+        'epsilon': epsilon,
+        'optimizer_lr': optimizer_lr,
+        'freeze': freeze
+    }
+    fig, ax = add_hyperparameter_text(params)
+    # Plot with evenly spaced points
+    ax.plot(range(len(dropout_rates)), best_vals, label='Best Valid Accuracy', color='blue', marker='o')
+    ax.plot(range(len(dropout_rates)), best_tests, label='Best Test Accuracy', color='red', marker='o')
+
+    ax.set_xticks(range(len(dropout_rates)))
+    ax.set_xticklabels(dropout_rates)
+
+    plt.xlabel('Dropout Rate')
+    plt.ylabel('Accuracy')
+    plt.title('accuracy vs dropout rate')
+    plt.legend()
+    plt.savefig('{}/{}_adamw_dropout_experiment_accuracy_{}.png'.format(folder_name, dataset_name, timestamp))
+    plt.clf()  # Clear the current figure for the next plot
 
 
 # parser = argparse.ArgumentParser(description="Process experiment arguments")
@@ -86,7 +147,7 @@ now = datetime.now()
 timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
 
 # Create folder for results
-folder = Path(f"result_{timestamp}")
+folder = Path(f"result_regularization")
 folder.mkdir(parents=True, exist_ok=True)
 folder_name = folder.name
 
@@ -96,5 +157,14 @@ folder_name = folder.name
 # num_runs = args.num_runs if args.num_runs > 0 else 1
 # print('num_runs {}'.format(num_runs))
 
-overfit_experiment()
+regularization_experiment(dataset_name='citeseer', num_mp_layers=3, num_fl_layers=1,
+                            mp_hidden_dim=3000, fl_hidden_dim=256, epsilon=5**0.5/2,
+                            optimizer_lr=0.01,
+                            loss_func='CrossEntropyLoss', total_epoch=400,
+                            freeze=False)
 
+regularization_experiment_dropout(dataset_name='citeseer', num_mp_layers=3, num_fl_layers=1,
+                            mp_hidden_dim=3000, fl_hidden_dim=256, epsilon=5**0.5/2,
+                            optimizer_lr=0.01,
+                            loss_func='CrossEntropyLoss', total_epoch=400,
+                            freeze=False)

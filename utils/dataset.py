@@ -6,6 +6,8 @@ from torch_geometric.datasets import Amazon
 from torch_geometric.datasets import Coauthor
 from torch_geometric.datasets import WikiCS
 from torch_geometric.datasets import HeterophilousGraphDataset
+from torch_geometric.datasets import TUDataset
+from torch_geometric.datasets import Reddit
 from torch_geometric.data import Data
 import torch_geometric.transforms as T
 
@@ -51,6 +53,10 @@ def load_dataset(data_dir, dataset_name, filter=None):
         data = load_pokec_mat(data_dir)
     elif dataset_name in ('ogbn-proteins'):
         data = load_ogb_proteins_dataset(data_dir, dataset_name)
+    elif dataset_name == 'reddit-binary':
+        data = load_reddit_binary_dataset(data_dir, dataset_name, filter)
+    elif dataset_name == 'reddit':
+        data = load_reddit_dataset(data_dir, dataset_name)
     else:
         raise ValueError('Invalid dataname')
     return data
@@ -124,6 +130,22 @@ def load_pokec_mat(data_dir):
     data = Data(x=node_feat, edge_index=edge_index, y=labels)
 
     # data = T.ToSparseTensor()(data)
+
+    return data
+
+def load_reddit_dataset(data_dir, name):
+    # This will download and process the Reddit dataset into 'data/Reddit'
+    dataset = Reddit(root=f'{data_dir}/Reddit')
+    data = dataset[0]
+    return data
+
+
+def load_reddit_binary_dataset(data_dir, name, filter):
+    dataset = TUDataset(root=f'{data_dir}/Reddit', name=name)
+    if filter == 'all':
+        return dataset
+
+    data = dataset[0]
 
     return data
 
