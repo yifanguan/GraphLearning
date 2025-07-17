@@ -15,81 +15,8 @@ def deg_vec(edge_index):
     deg = adj.sum(dim=1)
     return deg
 
-# class InjectiveMP(MessagePassing):
-#     """
-#     An injective layer with normalization to prevent large magnitude.
-#     I is the identity matrix, H is the node feature matrix, and epsilon is a irrational scalar used to distinguish node itself from its neighbors.
-#     This layer itself has no learnable parameters. (Train-Free, ideally)
-#     No skip connection, no batch normalization, no dropout should be used
-#     We assume all MPs have the same width m
-#     """
-#     def __init__(self,
-#                  eps=2.0**0.5,
-#                  in_dim: int = -1,
-#                  out_dim: int = 300,
-#                  act=F.tanh,
-#                  freeze: bool = True):
-#         # Initialize the MessagePassing base class with 'add' aggregation
-#         super().__init__(aggr='add')
-    
-#         self.eps = eps
-#         self.in_dim = in_dim
-#         self.out_dim = out_dim
-#         self.act = act
-#         self.freeze = freeze
 
-#         self.W = nn.Linear(in_features=in_dim, out_features=out_dim)
-#         # set std of W
-#         # self.adj_matrix = to_dense_adj(edge_index)'.squeeze(0) '
-#         # norm = self.spectral_norm(edge_index)
-#         # std = (1.0 / (1 + epsilon + norm))
-#         std = 1.0
-#         nn.init.normal_(self.W.weight, mean=0.0, std=std)
-
-#         # Train-free injective message passing, so freeze the parameters of weights
-#         if self.freeze:
-#             for param in self.W.parameters():
-#                 param.requires_grad = False
-
-#     # def turn_off_training(self):
-#     #     if self.linear:
-#     #         for param in self.linear.parameters():
-#     #             param.requires_grad = False
-#             # for param in self.batch_norm.parameters():
-#             #     param.requires_grad = False
-
-#     # def turn_on_training(self):
-#     #     if self.linear:
-#     #         for param in self.linear.parameters():
-#     #             param.requires_grad = True
-#             # for param in self.batch_norm.parameters():
-#             #     param.requires_grad = True
-
-#     # def lift_operation(self, h):
-#     #     h = self.linear(h)
-#     #     h = F.relu(h)
-#     #     h = h * torch.tensor(self.m).pow(-0.5)
-
-#     #     return h
-
-#     def forward(self, x, edge_index):
-#         num_nodes = x.size(0)
-#         row, col = edge_index
-#         deg = degree(col, num_nodes=num_nodes, dtype=x.dtype)
-#         norm_factor = 1 + self.eps + deg
-#         # norm = avg_degree(edge_index)
-#         # norm = max_degree(edge_index)
-
-#         h = self.W(x)
-#         h = self.act(h)
-#         h = h / self.out_dim**0.5
-#         h = h / norm_factor.unsqueeze(1)
-#         Ah = torch.zeros_like(h).index_add(0, row, h[col])
-
-#         return (1 + self.eps) * h + Ah
-
-
-class InjectiveMP(MessagePassing):
+class iMP(MessagePassing):
     """
     Injective message passing with D_{-1}A row scaling.
     """
@@ -109,10 +36,6 @@ class InjectiveMP(MessagePassing):
         self.freeze = freeze
 
         self.W = nn.Linear(in_features=in_dim, out_features=out_dim)
-        # set std of W
-        # self.adj_matrix = to_dense_adj(edge_index)'.squeeze(0) '
-        # norm = self.spectral_norm(edge_index)
-        # std = (1.0 / (1 + epsilon + norm))
         std = 1.0
         nn.init.normal_(self.W.weight, mean=0.0, std=std)
 
@@ -121,44 +44,18 @@ class InjectiveMP(MessagePassing):
             for param in self.W.parameters():
                 param.requires_grad = False
 
-    # def turn_off_training(self):
-    #     if self.linear:
-    #         for param in self.linear.parameters():
-    #             param.requires_grad = False
-            # for param in self.batch_norm.parameters():
-            #     param.requires_grad = False
-
-    # def turn_on_training(self):
-    #     if self.linear:
-    #         for param in self.linear.parameters():
-    #             param.requires_grad = True
-            # for param in self.batch_norm.parameters():
-            #     param.requires_grad = True
-
-    # def lift_operation(self, h):
-    #     h = self.linear(h)
-    #     h = F.relu(h)
-    #     h = h * torch.tensor(self.m).pow(-0.5)
-
-    #     return h
-
     def forward(self, x, edge_index):
         num_nodes = x.size(0)
         row, col = edge_index
         deg = degree(col, num_nodes=num_nodes, dtype=x.dtype)
-        # norm_factor = 1 + self.eps + deg
-        # norm = avg_degree(edge_index)
-        # norm = max_degree(edge_index)
 
         h = self.W(x)
         h = self.act(h)
         h = h / deg.unsqueeze(1)
         # h = h / self.out_dim**0.5
-        # h = h / norm_factor.unsqueeze(1)
         Ah = torch.zeros_like(h).index_add(0, row, h[col])
 
         return Ah
-        # return (1 + self.eps) * h + Ah
 
 
 
@@ -196,7 +93,7 @@ class DecoupleModel(nn.Module):
 
         # Message passing layers
         self.mp_layers = nn.ModuleList([
-            InjectiveMP(in_dim=in_dim if i == 0 else mp_width, out_dim=mp_width, eps=eps, act=act, freeze=freeze)
+            iMP(in_dim=in_dim if i == 0 else mp_width, out_dim=mp_width, eps=eps, act=act, freeze=freeze)
             for i in range(num_mp_layers)
         ]) if num_mp_layers > 0 else None
 
