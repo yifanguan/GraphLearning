@@ -3,7 +3,7 @@ import torch
 # from torch_geometric.utils import degree
 # from ogb.graphproppred import PygGraphPropPredDataset
 # from ogb.graphproppred import Evaluator
-from models.dln import DecoupleModel
+from models.dln import DecoupleModel, iGNN
 from tqdm import tqdm
 from torch_geometric.datasets import Planetoid
 import torch_geometric.transforms as T
@@ -80,7 +80,7 @@ def evaluate(model, criterion, data, train_split_idx, validation_split_idx, test
 
 
 def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim,
-        epsilon, optimizer_lr, loss_func, total_epoch, index, freeze, save_model=False):
+        epsilon, optimizer_lr, loss_func, total_epoch, index, freeze, save_model=False, skip_connection=False, dropout=0):
     ###############################
     # hardcoded value goes here!!!!
     # dataset_name = 'Cora'
@@ -140,24 +140,23 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     # rank_of_distinct_matrix = torch.linalg.matrix_rank(torch.unique(data.x, dim=0), tol=1e-5)
     # print('initial rank of distinct matrix: ', rank_of_distinct_matrix.item())
 
-    model = DecoupleModel (
-        # edge_index=data.edge_index,
+    model = iGNN (
         in_dim=d,
         out_dim=c,
         mp_width=mp_hidden_dim,
         fl_width=fl_hidden_dim,
         num_mp_layers = num_mp_layers,
         num_fl_layers = num_fl_layers,
-        eps=epsilon,
-        freeze=freeze
-        # dropout=dropout,
+        freeze=freeze,
+        skip_connection=skip_connection,
+        dropout=dropout
         # first_layer_linear=first_layer_linear,
         # batch_normalization=batch_normalization,
         # skip_connection=skip_connection
     )
     # summary(model, input_data=(data))
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=optimizer_lr)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=optimizer_lr)
     criterion = torch.nn.CrossEntropyLoss()
     if loss_func == 'CrossEntropyLoss':
         criterion = torch.nn.CrossEntropyLoss()
@@ -251,14 +250,15 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
 
     # Plotting the loss, min cell is 0.1, large figure
     params = {
-        'dataset_name': 'Cora',
+        'dataset_name': dataset_name,
         'num_mp_layers': num_mp_layers,
         'num_fl_layers': num_fl_layers,
         'mp_hidden_dim': mp_hidden_dim,
         'fl_hidden_dim': fl_hidden_dim,
-        'epsilon': epsilon,
         'optimizer_lr': optimizer_lr,
-        'freeze': freeze
+        'freeze': freeze,
+        'skip_connection': skip_connection,
+        'dropout': dropout
     }
     
     # in case run() is executed in other files other than main.py
@@ -271,7 +271,7 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
         folder_name
     except NameError:
         # Create folder for results
-        folder = Path(f"result_{timestamp}")
+        folder = Path(f"result_{dataset_name}")
         folder.mkdir(parents=True, exist_ok=True)
         folder_name = folder.name
 
@@ -284,7 +284,7 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     plt.ylabel('Loss')
     plt.title('Loss vs Epochs')
     plt.legend()
-    plt.savefig('{}/loss_cora_{}_{}.png'.format(folder_name, index, timestamp))
+    plt.savefig('{}/loss_{}_{}_{}.png'.format(folder_name, dataset_name, index, timestamp))
     # plt.clf()  # Clear the current figure for the next plot
     plt.close()
     # Plotting the acc in one figure
@@ -297,7 +297,7 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     plt.ylabel('Accuracy')
     plt.title('Accuracy vs Epochs')
     plt.legend()
-    plt.savefig('{}/accuracy_cora{}_{}.png'.format(folder_name, index, timestamp))
+    plt.savefig('{}/accuracy_{}_{}_{}.png'.format(folder_name, dataset_name, index, timestamp))
     # plt.clf()  # Clear the current figure for the next plot
     plt.close()
 

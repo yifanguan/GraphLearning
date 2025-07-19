@@ -51,7 +51,8 @@ class iMP(MessagePassing):
         # use in degree; in case of undirected graph, this is the same as out degree
         deg = degree(col, num_nodes=num_nodes, dtype=x.dtype)
 
-        h = self.act(h)
+        # Compute T @ act(x) @ W
+        h = self.act(x)
         h = h / deg.unsqueeze(1) # safe now, no divide by 0 issue
         h = torch.zeros_like(h).index_add(0, col, h[row])
         h = self.linear(h)
