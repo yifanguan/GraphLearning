@@ -129,7 +129,7 @@ import os
 def root_dir():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     parent_dir = os.path.dirname(current_dir)
-    return root_dir
+    return parent_dir
 
 def unique_rows_with_tolerance(x, per_item_tolerance=1e-4, total_tolerance=1e-4):
     rounded = torch.round(x / per_item_tolerance) * per_item_tolerance
