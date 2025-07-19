@@ -6,7 +6,7 @@ from datetime import datetime
 import math
 # Add parent folder to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from models.dln import InjectiveMP, DecoupleModel, MPOnlyModel
+from models.dln import InjectiveMP, DecoupleModel, MPOnlyModel, iMP, iGNN
 from utils.wl_test import wl_relabel, find_group
 from utils.dataset import load_dataset
 import matplotlib.pyplot as plt
@@ -138,7 +138,7 @@ def embedding_rank(x: torch.Tensor, tol=1e-15):
     return x_unique.size(0), torch.linalg.matrix_rank(x_unique, tol=tol)
     # return unique_rows_with_tolerance(x_unique), torch.linalg.matrix_rank(x_unique, tol=tol)
 
-def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, tolerance=1e-5, dim_list=[50]):
+def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, skip_conneciton=False, tolerance=1e-5, dim_list=[50]):
     root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
     data_dir=f'{root_dir}/data'
     data = load_dataset(data_dir=data_dir, dataset_name=dataset_name, filter=None if dataset_name != 'mnist' else 0)
@@ -156,8 +156,6 @@ def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, tolerance=1e
         temp_list.append(k)
     distinct_features_each_iteration = temp_list
     
-
-    # dim_list = [50, 150, 300, 500, 1000, 2000, 4000, 8000]
     dim_list = dim_list
     non_linear_res = []
     labels = [f"Non_linear_mp/dim={dim}" for dim in dim_list]
@@ -187,7 +185,7 @@ def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, tolerance=1e
             distinct_node_feature.append(distinct_node_feature[-1])
             distinct_node_feature_x.append(i)
 
-            dln = InjectiveMP(eps=5**0.5/2, in_dim=dim, out_dim=dim, freeze=True) # hidden_dim=dim
+            dln = iMP(in_dim=dim, out_dim=dim, freeze=True, skip_connection=skip_conneciton) # hidden_dim=dim
             h = dln(h, edge_index)
             mp_groups = find_group(h)
             # h_matrix = torch.unique(h, dim=0).double()
@@ -231,7 +229,7 @@ def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, tolerance=1e
     plt.tight_layout()
     # Save the figure to pdf
     plt.savefig(f'{root_dir}/injective_plot/injective_{dataset_name}_mp_{mp_depth}_tolerance_{tolerance}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.png', bbox_inches='tight')
-    # plt.show()
+    plt.show()
 
 
 # def generate_expressive_power_plot_multi_graph(dataset_name='mnist', mp_depth=6, tolerance=1e-5, dim_list=[50]):
@@ -325,9 +323,9 @@ def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, tolerance=1e
 #     plt.show()
 
 from main import run
-def generate_expressive_power_plot_with_training(dataset_name='Cora', mp_depth=6, tolerance=1e-5,
+def generate_expressive_power_plot_with_training(dataset_name='Cora', mp_depth=6, tolerance=1e-5, skip_connection=False,
                                                  dim_list=[50], num_fl_layers=2, fl_hidden_dim=128,
-                                                 epsilon=5**0.5/2, optimizer_lr=0.01, total_epoch=100):
+                                                 epsilon=5**0.5/2, optimizer_lr=0.01, total_epoch=200):
     '''
     First train our model on a dataset, and then do the forward pass to evaluate the injective layers'
     expressive power and ranks
@@ -365,7 +363,7 @@ def generate_expressive_power_plot_with_training(dataset_name='Cora', mp_depth=6
     for dim in dim_list:
         best_val, best_test, model = run(dataset_name, mp_depth, num_fl_layers, dim,
                                          fl_hidden_dim, epsilon, optimizer_lr, loss_func,
-                                         total_epoch, index=0, freeze=False, save_model=True)
+                                         total_epoch, index=0, freeze=False, save_model=True, skip_connection=skip_connection, dropout=0)
 
         mp_model = MPOnlyModel(model)
         h = torch.ones((data.num_nodes, data.x.shape[1]), dtype=torch.float32)
@@ -427,7 +425,7 @@ def generate_expressive_power_plot_with_training(dataset_name='Cora', mp_depth=6
     plt.tight_layout()
     # Save the figure to pdf
     plt.savefig(f'{root_dir}/injective_plot/train_injective_{dataset_name}_mp_{mp_depth}_tolerance_{tolerance}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.png', bbox_inches='tight')
-    plt.show()
+    # plt.show()
 
 
 

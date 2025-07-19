@@ -51,12 +51,21 @@ from utils.distinct_features_and_rank import generate_expressive_power_plot, gen
 # generate_expressive_power_plot(dataset_name='minesweeper', mp_depth=50, tolerance=1e-5, dim_list=[50, 100, 250, 500, 1000, 2000, 4000])
 
 
-generate_expressive_power_plot(dataset_name='amazon-photo', mp_depth=5, tolerance=1e-5, dim_list=[50, 100, 500, 1000, 2000, 4000, 8000])
+# generate_expressive_power_plot(dataset_name='amazon-photo', mp_depth=5, tolerance=1e-5, dim_list=[50, 100, 500, 1000, 2000, 4000, 8000])
 
-generate_expressive_power_plot_with_training(dataset_name='amazon-photo', mp_depth=5, tolerance=1e-5, dim_list=[50, 100, 500, 1000, 2000, 4000, 8000],
-                                             num_fl_layers=2, fl_hidden_dim=128, epsilon=5**0.5/2, optimizer_lr=0.01, total_epoch=1000)
+# generate_expressive_power_plot_with_training(dataset_name='amazon-photo', mp_depth=5, tolerance=1e-5, dim_list=[50, 100, 500, 1000, 2000, 4000, 8000],
+#                                              num_fl_layers=2, fl_hidden_dim=128, epsilon=5**0.5/2, optimizer_lr=0.01, total_epoch=1000)
 
 
 # TO RUN:
 # generate_expressive_power_plot_with_training(dataset_name='cornell5', mp_depth=7, tolerance=1e-5, dim_list=[100, 500, 1000, 2000, 5000, 10000],
 #                                              num_fl_layers=2, fl_hidden_dim=128, epsilon=5**0.5/2, optimizer_lr=0.01, total_epoch=300)
+
+
+
+
+
+######################################******Using new model******######################################
+generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, tolerance=1e-5, skip_conneciton=False, dim_list=[50, 100, 500, 1000, 2000, 4000, 8000])
+generate_expressive_power_plot_with_training(dataset_name='Cora', mp_depth=6, tolerance=1e-5, skip_connection=False, dim_list=[50, 100, 500, 1000, 2000, 4000, 8000],
+                                             num_fl_layers=2, fl_hidden_dim=128, epsilon=5**0.5/2, optimizer_lr=0.01, total_epoch=300)
