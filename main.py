@@ -23,6 +23,7 @@ import sys
 from utils.text_hyperparameters import add_hyperparameter_text
 from utils.dataset import load_dataset
 from utils.data_split_util import rand_train_test_idx
+from utils.timestamp import timestamp
 
 # TODO: improve result folder structure
 # TODO: dashed line for std result after running multiple runs
@@ -265,8 +266,7 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     try:
         timestamp
     except NameError:
-        now = datetime.now()
-        timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
+        timestamp = timestamp()
     try:
         folder_name
     except NameError:
@@ -502,8 +502,7 @@ def run_overfitting_understanding(dataset_name, num_mp_layers, num_fl_layers, mp
     try:
         timestamp
     except NameError:
-        now = datetime.now()
-        timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
+        timestamp = timestamp()
     try:
         folder_name
     except NameError:
@@ -713,8 +712,7 @@ def run_with_regularization(dataset_name, optimizer, weight_decay, num_mp_layers
     try:
         timestamp
     except NameError:
-        now = datetime.now()
-        timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
+        timestamp = timestamp()
     try:
         folder_name
     except NameError:
@@ -1073,8 +1071,7 @@ if __name__ == "__main__":
     freeze = not args.train_mp
 
     # For filename
-    now = datetime.now()
-    timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
+    timestamp = timestamp()
 
     # Create folder for results
     folder = Path(f"result_{timestamp}")

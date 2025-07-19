@@ -14,6 +14,7 @@ import seaborn as sns
 from torch_geometric.data import Batch
 from torch_geometric.utils import is_undirected, to_undirected
 from torch_geometric.nn import GIN
+import os
 
 
 # dataset_name = 'Cora'
@@ -125,6 +126,11 @@ from torch_geometric.nn import GIN
 # plt.savefig(f'injective_tolerance_{tolerance}.pdf', format='pdf', bbox_inches='tight')
 # plt.show()
 
+def root_dir():
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.dirname(current_dir)
+    return root_dir
+
 def unique_rows_with_tolerance(x, per_item_tolerance=1e-4, total_tolerance=1e-4):
     rounded = torch.round(x / per_item_tolerance) * per_item_tolerance
     unique_rows = torch.unique(rounded, dim=0)
@@ -139,8 +145,8 @@ def embedding_rank(x: torch.Tensor, tol=1e-15):
     # return unique_rows_with_tolerance(x_unique), torch.linalg.matrix_rank(x_unique, tol=tol)
 
 def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, skip_conneciton=False, tolerance=1e-5, dim_list=[50]):
-    root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
-    data_dir=f'{root_dir}/data'
+    # root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
+    data_dir=f'{root_dir()}/data'
     data = load_dataset(data_dir=data_dir, dataset_name=dataset_name, filter=None if dataset_name != 'mnist' else 0)
     if dataset_name == 'mnist':
         data = Batch.from_data_list(data)
@@ -228,7 +234,7 @@ def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, skip_conneci
     plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     plt.tight_layout()
     # Save the figure to pdf
-    plt.savefig(f'{root_dir}/injective_plot/injective_{dataset_name}_mp_{mp_depth}_tolerance_{tolerance}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.png', bbox_inches='tight')
+    plt.savefig(f'{root_dir()}/injective_plot/injective_{dataset_name}_mp_{mp_depth}_tolerance_{tolerance}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.png', bbox_inches='tight')
     plt.show()
 
 
@@ -331,8 +337,8 @@ def generate_expressive_power_plot_with_training(dataset_name='Cora', mp_depth=6
     expressive power and ranks
     '''
     # for each dimension mentioned in the dim_list, we need to train a model.
-    root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
-    data_dir=f'{root_dir}/data'
+    # root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
+    data_dir=f'{root_dir()}/data'
     data = load_dataset(data_dir=data_dir, dataset_name=dataset_name, filter=None if dataset_name != 'mnist' else 0)
     if dataset_name == 'mnist':
         data = Batch.from_data_list(data)
@@ -424,7 +430,7 @@ def generate_expressive_power_plot_with_training(dataset_name='Cora', mp_depth=6
     plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     plt.tight_layout()
     # Save the figure to pdf
-    plt.savefig(f'{root_dir}/injective_plot/train_injective_{dataset_name}_mp_{mp_depth}_tolerance_{tolerance}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.png', bbox_inches='tight')
+    plt.savefig(f'{root_dir()}/injective_plot/train_injective_{dataset_name}_mp_{mp_depth}_tolerance_{tolerance}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.png', bbox_inches='tight')
     # plt.show()
 
 
