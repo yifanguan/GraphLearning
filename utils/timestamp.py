@@ -2,7 +2,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo  # Built-in since Python 3.9
 
 
-def timestamp():
+def get_timestamp():
     # Get current time in UTC (timezone-aware)
     now_utc = datetime.now(tz=ZoneInfo("UTC"))
 

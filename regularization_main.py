@@ -19,7 +19,7 @@ import sys
 from utils.text_hyperparameters import add_hyperparameter_text
 from utils.dataset import load_dataset
 from utils.data_split_util import rand_train_test_idx
-from utils.timestamp import timestamp
+from utils.timestamp import get_timestamp
 
 
 
@@ -146,7 +146,7 @@ def regularization_experiment_dropout(dataset_name, num_mp_layers=3, num_fl_laye
 # For filename
 # now = datetime.now()
 # timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
-timestamp = timestamp()
+timestamp = get_timestamp()
 
 # Create folder for results
 folder = Path(f"result_regularization")
