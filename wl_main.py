@@ -1,6 +1,7 @@
 from utils.wl_test import wl_relabel, wl_relabel_multigraph, adam_wl_refinement
 from utils.dataset import load_dataset 
 from utils.wl_test import networkx_wl_relabel, networkx_wl_relabel_multi_graphs
+from torch_geometric.utils import is_undirected
 
 # mnist 0 digit has 517313 distinct features
 # texas has 129 distinct features, 4 wl iterations
@@ -34,10 +35,10 @@ from utils.wl_test import networkx_wl_relabel, networkx_wl_relabel_multi_graphs
 
 
 # root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
-data_dir=f'data'
-data = load_dataset(data_dir=data_dir, dataset_name='cornell5')
-k, _, distinct_features_each_iteration = wl_relabel(data, 30)
-print(f'cornell5 data: {data}')
+# data_dir=f'data'
+# data = load_dataset(data_dir=data_dir, dataset_name='cornell5')
+# k, _, distinct_features_each_iteration = wl_relabel(data, 30)
+# print(f'cornell5 data: {data}')
 
 # k, _, distinct_features_each_iteration = wl_relabel(data, 20)
 
@@ -166,11 +167,13 @@ print(f'cornell5 data: {data}')
 
 
 # TODO: run, it is too large
-# root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
-# data_dir=f'{root_dir}/data'
-# data = load_dataset(data_dir=data_dir, dataset_name='ogbn-products')
+root_dir = '.'
+data_dir=f'{root_dir}/data'
+data = load_dataset(data_dir=data_dir, dataset_name='ogbn-products')
 # print(data)
-# k, _, distinct_features_each_iteration = wl_relabel(data, 30)
+# print(is_undirected(data.edge_index))
+# data.edge_index = to_undirected(data.edge_index)
+k, _, distinct_features_each_iteration = wl_relabel(data, 60)
 # print(k)
 
 # TODO: run, it is too large
@@ -206,7 +209,7 @@ print(f'cornell5 data: {data}')
 # k, _, distinct_features_each_iteration = wl_relabel(data, 30)
 # print(k)
 
-root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
-data_dir=f'{root_dir}/data'
-data = load_dataset(data_dir=data_dir, dataset_name='citeseer')
-k, _, distinct_features_each_iteration = wl_relabel(data, 30)
+# root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
+# data_dir=f'{root_dir}/data'
+# data = load_dataset(data_dir=data_dir, dataset_name='citeseer')
+# k, _, distinct_features_each_iteration = wl_relabel(data, 30)

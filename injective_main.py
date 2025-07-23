@@ -1,4 +1,6 @@
 from utils.distinct_features_and_rank import generate_expressive_power_plot, generate_expressive_power_plot_with_training
+import torch
+import gc
 
 # mnist 0 digit has 517313 distinct features
 # texas has 129 distinct features, 4 wl iterations, 183 nodes
@@ -66,6 +68,37 @@ from utils.distinct_features_and_rank import generate_expressive_power_plot, gen
 
 
 ######################################******Using new model******######################################
-generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, tolerance=1e-5, skip_conneciton=False, dim_list=[50, 100, 500, 1000, 2000, 4000, 8000])
-generate_expressive_power_plot_with_training(dataset_name='Cora', mp_depth=6, tolerance=1e-5, skip_connection=False, dim_list=[50, 100, 500, 1000, 2000, 4000, 8000],
-                                             num_fl_layers=2, fl_hidden_dim=128, epsilon=5**0.5/2, optimizer_lr=0.01, total_epoch=300)
+# generate_expressive_power_plot(dataset_name='Cora', mp_depth=3, tolerance=1e-5, skip_conneciton=False, dim_list=[50, 100, 500, 1000, 2000, 4000, 8000])
+# generate_expressive_power_plot_with_training(dataset_name='Cora', mp_depth=3, tolerance=1e-5, skip_connection=False, dropout=0, dim_list=[50, 100, 500, 1000, 2000, 4000, 8000],
+#                                              num_fl_layers=5, fl_hidden_dim=128, epsilon=5**0.5/2, optimizer_lr=0.001, total_epoch=500)
+# torch.cuda.empty_cache()       # release cached blocks
+# gc.collect()                   # force Python to collect garbage
+# torch.cuda.ipc_collect()       # clean up CUDA inter-process handles (optional)1
+dropout_rates = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+for dropout in dropout_rates:
+    generate_expressive_power_plot_with_training(dataset_name='Cora', mp_depth=3, tolerance=1e-5, skip_connection=False, dropout=dropout, dim_list=[50, 100, 500, 1000, 2000, 4000, 8000],
+                                                num_fl_layers=5, fl_hidden_dim=128, epsilon=5**0.5/2, optimizer_lr=0.001, total_epoch=500)
+    # ---- Clean up GPU memory ----
+    torch.cuda.empty_cache()       # release cached blocks
+    gc.collect()                   # force Python to collect garbage
+    torch.cuda.ipc_collect()       # clean up CUDA inter-process handles (optional)
+
+
+
+# generate_expressive_power_plot(dataset_name='citeseer', mp_depth=6, tolerance=1e-5, skip_conneciton=False, dim_list=[50, 100, 500, 1000, 2000, 4000, 8000])
+# generate_expressive_power_plot_with_training(dataset_name='citeseer', mp_depth=2, tolerance=1e-5, skip_connection=False, dropout=0, dim_list=[50, 100, 500, 1000, 2000, 4000, 8000],
+#                                              num_fl_layers=5, fl_hidden_dim=128, epsilon=5**0.5/2, optimizer_lr=0.001, total_epoch=500)
+# # ---- Clean up GPU memory ----
+# torch.cuda.empty_cache()       # release cached blocks
+# gc.collect()                   # force Python to collect garbage
+# torch.cuda.ipc_collect()       # clean up CUDA inter-process handles (optional)1
+
+# dropout_rates = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+# # dropout_rates = [0.7, 0.8, 0.9]
+# for dropout in dropout_rates:
+#     generate_expressive_power_plot_with_training(dataset_name='citeseer', mp_depth=2, tolerance=1e-5, skip_connection=False, dropout=dropout, dim_list=[50, 100, 500, 1000, 2000, 4000, 8000],
+#                                                  num_fl_layers=5, fl_hidden_dim=128, epsilon=5**0.5/2, optimizer_lr=0.001, total_epoch=1000)
+#     # ---- Clean up GPU memory ----
+#     torch.cuda.empty_cache()       # release cached blocks
+#     gc.collect()                   # force Python to collect garbage
+#     torch.cuda.ipc_collect()       # clean up CUDA inter-process handles (optional)

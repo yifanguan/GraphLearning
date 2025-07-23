@@ -12,8 +12,8 @@ from torch_geometric.data import Data
 import torch_geometric.transforms as T
 
 # from ogb.nodeproppred.dataset_dgl import DglNodePropPredDataset
-
-# from ogb.nodeproppred import NodePropPredDataset, PygNodePropPredDataset
+# NodePropPredDataset, 
+from ogb.nodeproppred import PygNodePropPredDataset
 
 # import dgl.function as fn
 

@@ -63,7 +63,7 @@ class iMP(MessagePassing):
             h = self.linear(h)
 
         # pre-activation skip connection
-        if self.skip_connection:
+        if self.skip_connection and self.linear.in_features == self.linear.out_features:
             return x + self.alpha * h
         return h
 
@@ -147,6 +147,157 @@ class iGNN(nn.Module):
 
         return self.output_layer(x)
 
+
+
+
+class iGNN_energy_version(nn.Module):
+    """
+    A Graph Neural Network model.
+    Train with energy as part of the loss.
+
+    Args:
+        num_mp_layers: The number of injective layers to stack.
+        num_fl_layers: number of feature learning layers to stack.
+        eps (float): The epsilon value to use for all layers.
+        act (nn.Module, optional): The activation function to apply between
+                                         layers (e.g., nn.ReLU()). If None, no activation
+                                         is applied. Defaults to None.
+    """
+    def __init__(self,
+                in_dim: int,
+                mp_width: int,
+                out_dim:int,
+                num_mp_layers: int = 3,
+                act=F.gelu,
+                freeze=True,
+                # dropout: float = 0,
+                alpha=1.0,
+                skip_connection = False
+                ):
+        super().__init__()
+        self.act = act
+        # self.dropout = dropout
+        self.skip_connection = skip_connection
+        self.alpha = alpha
+
+        self.input_layer = nn.Linear(in_dim, mp_width)
+
+        # Message passing layers
+        self.mp_layers = nn.ModuleList([
+            iMP(in_dim=mp_width, out_dim=mp_width, act=act, freeze=freeze, alpha=alpha, skip_connection=skip_connection)
+            for i in range(num_mp_layers)
+        ])
+
+        # Output layer
+        self.output_layer = nn.Linear(mp_width, out_dim)
+
+    def forward(self, data):
+        """
+        Forward pass through the stacked GNN layers.
+        Returns:
+            torch.Tensor: Node features after passing through all layers.
+        """
+        x, edge_index = data.x, data.edge_index
+
+        h = self.input_layer(x)
+
+        for layer in self.mp_layers:
+            h = layer(h, edge_index)
+
+        return self.output_layer(h)
+
+
+
+
+
+class iGNN_V2(nn.Module):
+    """
+    A Graph Neural Network model.
+    Each mp is followed by a fc.
+
+    Args:
+        num_mp_layers: The number of injective layers to stack.
+        num_fl_layers: number of feature learning layers to stack.
+        eps (float): The epsilon value to use for all layers.
+        act (nn.Module, optional): The activation function to apply between
+                                         layers (e.g., nn.ReLU()). If None, no activation
+                                         is applied. Defaults to None.
+    """
+    def __init__(self,
+                in_dim: int,
+                mp_width: int,
+                fl_width: int,
+                out_dim:int,
+                num_mp_layers: int = 3,
+                num_fl_layers: int = 2,
+                act=F.gelu,
+                freeze=True,
+                dropout: float = 0,
+                alpha=1.0,
+                skip_connection = False
+                ):
+        # In V2, number of message passing layer is equal to number fully connected layers
+        assert num_mp_layers == num_fl_layers
+        assert mp_width == fl_width
+        super().__init__()
+        self.act = act
+        self.dropout = dropout
+        self.skip_connection = skip_connection
+        self.alpha = alpha
+
+        # Message passing layers
+        self.mp_layers = nn.ModuleList([
+            iMP(in_dim=in_dim if i == 0 else mp_width, out_dim=mp_width, act=act, freeze=freeze, alpha=alpha, skip_connection=skip_connection)
+            for i in range(num_mp_layers)
+        ]) if num_mp_layers > 0 else None
+
+        # Fully connected layers
+        self.fc_layers = nn.ModuleList(
+            [nn.Linear(mp_width if self.mp_layers else in_dim, fl_width)] +
+            [nn.Linear(fl_width, fl_width) for _ in range(num_fl_layers - 1)]
+        ) if num_fl_layers > 0 else None
+
+        # Per-layer injection projections from MP output to FC width
+        self.injection_projs = nn.ModuleList([
+            nn.Linear(mp_width if self.mp_layers else in_dim, fl_width)
+            for _ in range(num_fl_layers)
+        ]) if num_fl_layers > 0 else None
+
+        # Output layer
+        out_input_dim = (
+            fl_width if self.fc_layers else
+            mp_width if self.mp_layers else
+            in_dim
+        )
+        self.output_layer = nn.Linear(out_input_dim, out_dim)
+
+    def forward(self, data):
+        """
+        Forward pass through the stacked GNN layers.
+        Returns:
+            torch.Tensor: Node features after passing through all layers.
+        """
+        x, edge_index = data.x, data.edge_index
+
+        # if self.mp_layers:
+        #     for layer in self.mp_layers:
+        #         x = layer(x, edge_index)
+
+        # if self.fc_layers:
+        #     x_inject = x  # Save for injection
+        #     for layer, proj in zip(self.fc_layers, self.injection_projs):
+        #         injected = proj(x_inject)
+        #         x = layer(self.act(x)) + injected
+        #         x = F.dropout(x, p=self.dropout, training=self.training)
+
+        for i, layer in enumerate(self.mp_layers):
+            x = layer(x, edge_index)
+            x_inject = x  # Save for injection
+            injected = self.injection_projs[i](x_inject)
+            x = self.fc_layers[i](self.act(x)) + injected
+            x = F.dropout(x, p=self.dropout, training=self.training)
+
+        return self.output_layer(x)
 
 
 
@@ -365,13 +516,14 @@ class DecoupleModel(nn.Module):
         if self.mp_layers:
             for layer in self.mp_layers:
                 x = layer(x, edge_index)
+                x = F.dropout(x, p=self.dropout, training=self.training)
 
         if self.fc_layers:
             x_inject = x  # Save for injection
             for layer, proj in zip(self.fc_layers, self.injection_projs):
                 injected = proj(x_inject)
                 x = layer(self.act(x)) + injected
-                x = F.dropout(x, p=self.dropout, training=self.training)
+                # x = F.dropout(x, p=self.dropout, training=self.training)
 
         return self.output_layer(x)
 

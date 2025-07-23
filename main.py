@@ -3,7 +3,7 @@ import torch
 # from torch_geometric.utils import degree
 # from ogb.graphproppred import PygGraphPropPredDataset
 # from ogb.graphproppred import Evaluator
-from models.dln import DecoupleModel, iGNN
+from models.dln import DecoupleModel, iGNN, iGNN_V2
 from tqdm import tqdm
 from torch_geometric.datasets import Planetoid
 import torch_geometric.transforms as T
@@ -24,6 +24,7 @@ from utils.text_hyperparameters import add_hyperparameter_text
 from utils.dataset import load_dataset
 from utils.data_split_util import rand_train_test_idx
 from utils.timestamp import get_timestamp
+from torch_geometric.utils import to_undirected
 
 # TODO: improve result folder structure
 # TODO: dashed line for std result after running multiple runs
@@ -77,11 +78,13 @@ def evaluate(model, criterion, data, train_split_idx, validation_split_idx, test
     valid_acc = correct_valid.sum().item() / len(correct_valid)
     test_acc = correct_tes.sum().item() / len(correct_tes)
 
-    return train_acc, valid_acc, test_acc, valid_loss, test_loss
+    return train_acc, valid_acc, test_acc, valid_loss.item(), test_loss.item()
 
 
 def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim,
-        epsilon, optimizer_lr, loss_func, total_epoch, index, freeze, save_model=False, skip_connection=False, dropout=0):
+        epsilon, optimizer_lr, loss_func, total_epoch, index, freeze, save_model=False, skip_connection=False, dropout=0,
+        folder_name_suffix=""):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     ###############################
     # hardcoded value goes here!!!!
     # dataset_name = 'Cora'
@@ -94,7 +97,7 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     # # weight_decay=5e-4
     # loss_func = 'CrossEntropyLoss'
     # total_epoch = 300
-    display_step = 50
+    display_step = 20
     # dropout=0
     # warm_up_epoch_num = 0
     # first_layer_linear=False
@@ -109,7 +112,8 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     # print('Number of classes:', dataset.num_classes)
 
     # data = dataset[0]  # Cora has only one graph
-    data = load_dataset(data_dir='data', dataset_name=dataset_name)
+    data = load_dataset(data_dir='data', dataset_name=dataset_name).to(device)
+    data.edge_index = to_undirected(data.edge_index)
     # print(data)
     # print('Number of nodes:', data.num_nodes)
     # print('Number of edges:', data.num_edges)
@@ -154,7 +158,7 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
         # first_layer_linear=first_layer_linear,
         # batch_normalization=batch_normalization,
         # skip_connection=skip_connection
-    )
+    ).to(device)
     # summary(model, input_data=(data))
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=optimizer_lr)
@@ -175,6 +179,7 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     print(f'optimizer_lr: {optimizer_lr}')
     print(f'loss_func: {loss_func}')
     print(f'total_epoch: {total_epoch}')
+    print(f'dropout: {dropout}')
 
     with open('experiment_records.txt', 'a') as f:
         f.writelines('Experiment run: \n')
@@ -271,7 +276,7 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
         folder_name
     except NameError:
         # Create folder for results
-        folder = Path(f"result_{dataset_name}")
+        folder = Path(f"result_{dataset_name}_{folder_name_suffix}")
         folder.mkdir(parents=True, exist_ok=True)
         folder_name = folder.name
 
@@ -302,13 +307,15 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     plt.close()
 
     if save_model:
-        torch.save(model.state_dict(), F'saved_models/model_weights_{dataset_name}_{num_mp_layers}_{mp_hidden_dim}_{num_fl_layers}_{fl_hidden_dim}.pth')
+        torch.save(model.state_dict(), F'saved_models/model_weights_{dataset_name}_{num_mp_layers}_{mp_hidden_dim}_{num_fl_layers}_{fl_hidden_dim}_{dropout}.pth')
 
-    return best_val, best_test, model
+    return best_val, best_test, model, train_accuracy_list, valid_accuracy_list, test_accuracy_list
 
 
 def run_overfitting_understanding(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim,
                                   epsilon, optimizer_lr, loss_func, total_epoch, index, freeze, save_model=False, extra_train_data_rate=0.05):
+    # Choose device
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     ###############################
     # hardcoded value goes here!!!!
     # dataset_name = 'Cora'
@@ -336,7 +343,7 @@ def run_overfitting_understanding(dataset_name, num_mp_layers, num_fl_layers, mp
     # print('Number of classes:', dataset.num_classes)
 
     # data = dataset[0]  # Cora has only one graph
-    data = load_dataset(data_dir='data', dataset_name=dataset_name)
+    data = load_dataset(data_dir='data', dataset_name=dataset_name).to(device)
     # print(data)
     # print('Number of nodes:', data.num_nodes)
     # print('Number of edges:', data.num_edges)
@@ -391,7 +398,7 @@ def run_overfitting_understanding(dataset_name, num_mp_layers, num_fl_layers, mp
         # first_layer_linear=first_layer_linear,
         # batch_normalization=batch_normalization,
         # skip_connection=skip_connection
-    )
+    ).to(device)
     # summary(model, input_data=(data))
 
     optimizer = torch.optim.Adam(model.parameters(), lr=optimizer_lr)
@@ -544,7 +551,8 @@ def run_overfitting_understanding(dataset_name, num_mp_layers, num_fl_layers, mp
 
 
 def run_with_regularization(dataset_name, optimizer, weight_decay, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim,
-                            epsilon, optimizer_lr, loss_func, total_epoch, index, freeze, save_model=False, dropout=0):
+                            epsilon, optimizer_lr, loss_func, total_epoch, index, freeze, save_model=False,
+                            skip_connection=False, dropout=0, folder_name_suffix="", version='v2'):
     # Choose device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -583,21 +591,38 @@ def run_with_regularization(dataset_name, optimizer, weight_decay, num_mp_layers
     # rank_of_distinct_matrix = torch.linalg.matrix_rank(torch.unique(data.x, dim=0), tol=1e-5)
     # print('initial rank of distinct matrix: ', rank_of_distinct_matrix.item())
 
-    model = DecoupleModel (
-        # edge_index=data.edge_index,
-        in_dim=d,
-        out_dim=c,
-        mp_width=mp_hidden_dim,
-        fl_width=fl_hidden_dim,
-        num_mp_layers = num_mp_layers,
-        num_fl_layers = num_fl_layers,
-        eps=epsilon,
-        freeze=freeze,
-        dropout=dropout
-        # first_layer_linear=first_layer_linear,
-        # batch_normalization=batch_normalization,
-        # skip_connection=skip_connection
-    ).to(device)
+    if version is None or version.lower() == 'v1':
+        model = iGNN (
+            # edge_index=data.edge_index,
+            in_dim=d,
+            out_dim=c,
+            mp_width=mp_hidden_dim,
+            fl_width=fl_hidden_dim,
+            num_mp_layers = num_mp_layers,
+            num_fl_layers = num_fl_layers,
+            freeze=freeze,
+            dropout=dropout,
+            skip_connection=skip_connection
+            # first_layer_linear=first_layer_linear,
+            # batch_normalization=batch_normalization,
+            # skip_connection=skip_connection
+        ).to(device)
+    elif version.lower() == 'v2':
+        model = iGNN_V2 (
+            # edge_index=data.edge_index,
+            in_dim=d,
+            out_dim=c,
+            mp_width=mp_hidden_dim,
+            fl_width=fl_hidden_dim,
+            num_mp_layers = num_mp_layers,
+            num_fl_layers = num_fl_layers,
+            freeze=freeze,
+            dropout=dropout,
+            skip_connection=skip_connection
+            # first_layer_linear=first_layer_linear,
+            # batch_normalization=batch_normalization,
+            # skip_connection=skip_connection
+        ).to(device)
     # summary(model, input_data=(data))
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=optimizer_lr, weight_decay=weight_decay)
@@ -620,6 +645,7 @@ def run_with_regularization(dataset_name, optimizer, weight_decay, num_mp_layers
     print(f'optimizer_lr: {optimizer_lr}')
     print(f'loss_func: {loss_func}')
     print(f'total_epoch: {total_epoch}')
+    print(f'dropout: {dropout}')
 
     with open('experiment_records.txt', 'a') as f:
         f.writelines('Experiment run: \n')
@@ -696,16 +722,16 @@ def run_with_regularization(dataset_name, optimizer, weight_decay, num_mp_layers
 
     # Plotting the loss, min cell is 0.1, large figure
     params = {
-        'dataset_name': 'Cora',
+        'dataset_name': dataset_name,
         'num_mp_layers': num_mp_layers,
         'num_fl_layers': num_fl_layers,
         'mp_hidden_dim': mp_hidden_dim,
         'fl_hidden_dim': fl_hidden_dim,
-        'epsilon': epsilon,
         'optimizer_lr': optimizer_lr,
         'freeze': freeze,
         'dropout': dropout,
-        'weight_decay': weight_decay
+        'weight_decay': weight_decay,
+        'skip_connection': skip_connection
     }
     
     # in case run() is executed in other files other than main.py
@@ -717,7 +743,7 @@ def run_with_regularization(dataset_name, optimizer, weight_decay, num_mp_layers
         folder_name
     except NameError:
         # Create folder for results
-        folder = Path(f"result_{timestamp}")
+        folder = Path(f"result_{dataset_name}_{folder_name_suffix}")
         folder.mkdir(parents=True, exist_ok=True)
         folder_name = folder.name
 
@@ -730,7 +756,7 @@ def run_with_regularization(dataset_name, optimizer, weight_decay, num_mp_layers
     plt.ylabel('Loss')
     plt.title('Loss vs Epochs')
     plt.legend()
-    plt.savefig('{}/loss_cora_{}_{}.png'.format(folder_name, index, timestamp))
+    plt.savefig('{}/loss_{}_{}_{}.png'.format(folder_name, dataset_name, index, timestamp))
     # plt.clf()  # Clear the current figure for the next plot
     plt.close()
     # Plotting the acc in one figure
@@ -743,13 +769,12 @@ def run_with_regularization(dataset_name, optimizer, weight_decay, num_mp_layers
     plt.ylabel('Accuracy')
     plt.title('Accuracy vs Epochs')
     plt.legend()
-    plt.savefig('{}/accuracy_cora{}_{}.png'.format(folder_name, index, timestamp))
+    plt.savefig('{}/accuracy_{}_{}_{}.png'.format(folder_name, dataset_name, index, timestamp))
     # plt.clf()  # Clear the current figure for the next plot
     plt.close()
 
     if save_model:
-        torch.save(model.state_dict(), F'saved_models/model_weights_{dataset_name}_{num_mp_layers}_{mp_hidden_dim}_{num_fl_layers}_{fl_hidden_dim}.pth')
-
+        torch.save(model.state_dict(), F'saved_models/model_weights_{dataset_name}_{num_mp_layers}_{mp_hidden_dim}_{num_fl_layers}_{fl_hidden_dim}_{dropout}.pth')
     return best_val, best_test, model
 
 
