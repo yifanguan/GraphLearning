@@ -20,6 +20,8 @@ from utils.text_hyperparameters import add_hyperparameter_text
 from utils.dataset import load_dataset
 from utils.data_split_util import rand_train_test_idx
 from utils.timestamp import get_timestamp
+import torch
+import gc
 
 
 
@@ -42,7 +44,7 @@ def regularization_experiment(dataset_name, num_mp_layers=3, num_fl_layers=2,
     # total_epoch = 400
     # freeze=False
     # ###############################
-    weight_decays = [1e-2, 5e-2, 1e-3, 5e-4, 1e-4, 1e-5, 0]
+    weight_decays = [10, 1, 5e-1, 1e-1, 1e-2, 5e-2, 1e-3, 5e-4, 1e-4, 1e-5, 0]
     best_vals = np.zeros(len(weight_decays))
     best_tests = np.zeros(len(weight_decays))
     for i, weight_decay in enumerate(weight_decays):
@@ -81,7 +83,7 @@ def regularization_experiment(dataset_name, num_mp_layers=3, num_fl_layers=2,
 def regularization_experiment_dropout(dataset_name, num_mp_layers=3, num_fl_layers=2,
                                         mp_hidden_dim=3000, fl_hidden_dim=512, epsilon=5**0.5/2, optimizer_lr=0.01,
                                         loss_func='CrossEntropyLoss', total_epoch=400,
-                                        freeze=False):
+                                        freeze=False, skip_connection=False, folder_name_suffix="", version='v2'):
     ###############################
     # Experiment setup
     # dataset_name = 'Cora'
@@ -91,18 +93,19 @@ def regularization_experiment_dropout(dataset_name, num_mp_layers=3, num_fl_laye
     # fl_hidden_dim = 512
     # epsilon = 5**0.5/2
     # optimizer_lr = 0.01
-    weight_decay=0
+    weight_decay=0.01
     # loss_func = 'CrossEntropyLoss'
     # total_epoch = 400
     # freeze=False
     ###############################
-    dropout_rates = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    dropout_rates = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
     best_vals = np.zeros(len(dropout_rates))
     best_tests = np.zeros(len(dropout_rates))
     for i, dropout in enumerate(dropout_rates):
         best_val, best_test, _ = run_with_regularization(dataset_name, 'AdamW', weight_decay, num_mp_layers, num_fl_layers, mp_hidden_dim,
                                                          fl_hidden_dim, epsilon, optimizer_lr, loss_func, total_epoch, index=0,
-                                                         freeze=freeze, dropout=dropout)
+                                                         freeze=freeze, dropout=dropout, skip_connection=skip_connection,
+                                                         folder_name_suffix=folder_name_suffix, version=version)
         best_vals[i] = best_val
         best_tests[i] = best_test
 
@@ -112,9 +115,9 @@ def regularization_experiment_dropout(dataset_name, num_mp_layers=3, num_fl_laye
         'num_fl_layers': num_fl_layers,
         'mp_hidden_dim': mp_hidden_dim,
         'fl_hidden_dim' : fl_hidden_dim,
-        'epsilon': epsilon,
         'optimizer_lr': optimizer_lr,
-        'freeze': freeze
+        'freeze': freeze,
+        'skip_connection': skip_connection
     }
     fig, ax = add_hyperparameter_text(params)
     # Plot with evenly spaced points
@@ -128,7 +131,7 @@ def regularization_experiment_dropout(dataset_name, num_mp_layers=3, num_fl_laye
     plt.ylabel('Accuracy')
     plt.title('accuracy vs dropout rate')
     plt.legend()
-    plt.savefig('{}/{}_adamw_dropout_experiment_accuracy_{}.png'.format(folder_name, dataset_name, timestamp))
+    plt.savefig('{}/{}_adamw_dropout_experiment_accuracy_{}.png'.format(folder_name, dataset_name, get_timestamp()))
     plt.clf()  # Clear the current figure for the next plot
 
 
@@ -146,7 +149,7 @@ def regularization_experiment_dropout(dataset_name, num_mp_layers=3, num_fl_laye
 # For filename
 # now = datetime.now()
 # timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
-timestamp = get_timestamp()
+# timestamp = get_timestamp()
 
 # Create folder for results
 folder = Path(f"result_regularization")
@@ -159,14 +162,55 @@ folder_name = folder.name
 # num_runs = args.num_runs if args.num_runs > 0 else 1
 # print('num_runs {}'.format(num_runs))
 
-regularization_experiment(dataset_name='citeseer', num_mp_layers=3, num_fl_layers=1,
-                            mp_hidden_dim=3000, fl_hidden_dim=256, epsilon=5**0.5/2,
-                            optimizer_lr=0.01,
-                            loss_func='CrossEntropyLoss', total_epoch=400,
-                            freeze=False)
+# regularization_experiment(dataset_name='citeseer', num_mp_layers=3, num_fl_layers=1,
+#                             mp_hidden_dim=3000, fl_hidden_dim=256, epsilon=5**0.5/2,
+#                             optimizer_lr=0.01,
+#                             loss_func='CrossEntropyLoss', total_epoch=400,
+#                             freeze=False)
 
-regularization_experiment_dropout(dataset_name='citeseer', num_mp_layers=3, num_fl_layers=1,
-                            mp_hidden_dim=3000, fl_hidden_dim=256, epsilon=5**0.5/2,
-                            optimizer_lr=0.01,
-                            loss_func='CrossEntropyLoss', total_epoch=400,
-                            freeze=False)
+# regularization_experiment(dataset_name='cora', num_mp_layers=3, num_fl_layers=1,
+#                             mp_hidden_dim=3000, fl_hidden_dim=256, epsilon=5**0.5/2,
+#                             optimizer_lr=0.01,
+#                             loss_func='CrossEntropyLoss', total_epoch=400,
+#                             freeze=False)
+
+
+# generate_expressive_power_plot_with_training(dataset_name='Cora', mp_depth=3, tolerance=1e-5, skip_connection=False, dropout=0, dim_list=[50, 100, 500, 1000, 2000, 4000, 8000],
+#                                              num_fl_layers=5, fl_hidden_dim=128, epsilon=5**0.5/2, optimizer_lr=0.001, total_epoch=500)
+
+
+regularization_experiment_dropout(dataset_name='cora', num_mp_layers=3, num_fl_layers=3,
+                            mp_hidden_dim=4000, fl_hidden_dim=4000, epsilon=5**0.5/2,
+                            optimizer_lr=0.0001,
+                            loss_func='CrossEntropyLoss', total_epoch=1000,
+                            freeze=False, skip_connection=True, folder_name_suffix="v2_verify_dropout_cora_6_4000", version='v2')
+# ---- Clean up GPU memory ----
+torch.cuda.empty_cache()       # release cached blocks
+gc.collect()                   # force Python to collect garbage
+torch.cuda.ipc_collect()       # clean up CUDA inter-process handles (optional)1
+
+
+# regularization_experiment_dropout(dataset_name='cora', num_mp_layers=3, num_fl_layers=5,
+#                             mp_hidden_dim=4000, fl_hidden_dim=128, epsilon=5**0.5/2,
+#                             optimizer_lr=0.001,
+#                             loss_func='CrossEntropyLoss', total_epoch=1000,
+#                             freeze=False, skip_connection=False, folder_name_suffix="verify_dropout_cora_3")
+# # ---- Clean up GPU memory ----
+# torch.cuda.empty_cache()       # release cached blocks
+# gc.collect()                   # force Python to collect garbage
+# torch.cuda.ipc_collect()       # clean up CUDA inter-process handles (optional)1
+
+
+
+# # generate_expressive_power_plot_with_training(dataset_name='Cora', mp_depth=3, tolerance=1e-5, skip_connection=False, dropout=0, dim_list=[50, 100, 500, 1000, 2000, 4000, 8000],
+# #                                              num_fl_layers=5, fl_hidden_dim=128, epsilon=5**0.5/2, optimizer_lr=0.001, total_epoch=500)
+
+# regularization_experiment_dropout(dataset_name='citeseer', num_mp_layers=6, num_fl_layers=2,
+#                             mp_hidden_dim=4000, fl_hidden_dim=128, epsilon=5**0.5/2,
+#                             optimizer_lr=0.001,
+#                             loss_func='CrossEntropyLoss', total_epoch=1000,
+#                             freeze=False, skip_connection=False, folder_name_suffix="verify_dropout_citeseer_6")
+# # ---- Clean up GPU memory ----
+# torch.cuda.empty_cache()       # release cached blocks
+# gc.collect()                   # force Python to collect garbage
+# torch.cuda.ipc_collect()       # clean up CUDA inter-process handles (optional)1

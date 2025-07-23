@@ -9,12 +9,14 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from models.dln import InjectiveMP, DecoupleModel, MPOnlyModel, iMP, iGNN
 from utils.wl_test import wl_relabel, find_group
 from utils.dataset import load_dataset
+from utils.timestamp import get_timestamp
 import matplotlib.pyplot as plt
 import seaborn as sns
 from torch_geometric.data import Batch
 from torch_geometric.utils import is_undirected, to_undirected
 from torch_geometric.nn import GIN
 import os
+import gc
 
 
 # dataset_name = 'Cora'
@@ -145,6 +147,7 @@ def embedding_rank(x: torch.Tensor, tol=1e-15):
     # return unique_rows_with_tolerance(x_unique), torch.linalg.matrix_rank(x_unique, tol=tol)
 
 def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, skip_conneciton=False, tolerance=1e-5, dim_list=[50]):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
     data_dir=f'{root_dir()}/data'
     data = load_dataset(data_dir=data_dir, dataset_name=dataset_name, filter=None if dataset_name != 'mnist' else 0)
@@ -234,7 +237,7 @@ def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, skip_conneci
     plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     plt.tight_layout()
     # Save the figure to pdf
-    plt.savefig(f'{root_dir()}/injective_plot/injective_{dataset_name}_mp_{mp_depth}_tolerance_{tolerance}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.png', bbox_inches='tight')
+    plt.savefig(f'{root_dir()}/injective_plot/injective_{dataset_name}_mp_{mp_depth}_tolerance_{tolerance}_{get_timestamp()}.png', bbox_inches='tight')
     plt.show()
 
 
@@ -329,17 +332,18 @@ def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, skip_conneci
 #     plt.show()
 
 from main import run
-def generate_expressive_power_plot_with_training(dataset_name='Cora', mp_depth=6, tolerance=1e-5, skip_connection=False,
+def generate_expressive_power_plot_with_training(dataset_name='Cora', mp_depth=6, tolerance=1e-5, skip_connection=False, dropout=0,
                                                  dim_list=[50], num_fl_layers=2, fl_hidden_dim=128,
                                                  epsilon=5**0.5/2, optimizer_lr=0.01, total_epoch=200):
     '''
     First train our model on a dataset, and then do the forward pass to evaluate the injective layers'
     expressive power and ranks
     '''
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # for each dimension mentioned in the dim_list, we need to train a model.
     # root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
     data_dir=f'{root_dir()}/data'
-    data = load_dataset(data_dir=data_dir, dataset_name=dataset_name, filter=None if dataset_name != 'mnist' else 0)
+    data = load_dataset(data_dir=data_dir, dataset_name=dataset_name, filter=None if dataset_name != 'mnist' else 0).to(device)
     if dataset_name == 'mnist':
         data = Batch.from_data_list(data)
 
@@ -367,12 +371,12 @@ def generate_expressive_power_plot_with_training(dataset_name='Cora', mp_depth=6
     # Do the training
     loss_func = 'CrossEntropyLoss'
     for dim in dim_list:
-        best_val, best_test, model = run(dataset_name, mp_depth, num_fl_layers, dim,
+        best_val, best_test, model, _, _, _ = run(dataset_name, mp_depth, num_fl_layers, dim,
                                          fl_hidden_dim, epsilon, optimizer_lr, loss_func,
-                                         total_epoch, index=0, freeze=False, save_model=True, skip_connection=skip_connection, dropout=0)
+                                         total_epoch, index=0, freeze=False, save_model=False, skip_connection=skip_connection, dropout=dropout, folder_name_suffix="check_dropout_after_mp")
 
         mp_model = MPOnlyModel(model)
-        h = torch.ones((data.num_nodes, data.x.shape[1]), dtype=torch.float32)
+        h = torch.ones((data.num_nodes, data.x.shape[1]), dtype=torch.float32).to(device)
         distinct_rows_matrix = torch.unique(h, dim=0).float()
 
         rank_of_distinct_matrix = torch.linalg.matrix_rank(distinct_rows_matrix, tol=tolerance)
@@ -400,6 +404,12 @@ def generate_expressive_power_plot_with_training(dataset_name='Cora', mp_depth=6
             distinct_node_feature_x.append(i)
         non_linear_res.append(rank_non_linear)
         distinct_node_feature_res.append(distinct_node_feature)
+
+        # ---- Clean up after each model ----
+        del mp_model
+        del model
+        gc.collect()
+        torch.cuda.empty_cache()
 
     res = non_linear_res
 
@@ -430,7 +440,7 @@ def generate_expressive_power_plot_with_training(dataset_name='Cora', mp_depth=6
     plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     plt.tight_layout()
     # Save the figure to pdf
-    plt.savefig(f'{root_dir()}/injective_plot/train_injective_{dataset_name}_mp_{mp_depth}_tolerance_{tolerance}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.png', bbox_inches='tight')
+    plt.savefig(f'{root_dir()}/injective_plot_my_dropout/train_injective_{dataset_name}_mp_{mp_depth}_tolerance_{tolerance}_dropout_{dropout}_{get_timestamp()}.png', bbox_inches='tight')
     # plt.show()
 
 
@@ -544,6 +554,6 @@ def generate_expressive_power_plot_transfer_learning(dataset_name='Cora', mp_dep
     plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     plt.tight_layout()
     # Save the figure to pdf
-    plt.savefig(f'{root_dir}/injective_plot/injective_{dataset_name}_mp_{mp_depth}_tolerance_{tolerance}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.png', bbox_inches='tight')
+    plt.savefig(f'{root_dir}/injective_plot/injective_{dataset_name}_mp_{mp_depth}_tolerance_{tolerance}_{get_timestamp()}.png', bbox_inches='tight')
     plt.show()
 
