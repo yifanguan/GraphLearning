@@ -39,6 +39,10 @@ class iMP(MessagePassing):
         self.linear = nn.Linear(in_features=in_dim, out_features=out_dim)
         self.simple = simple
 
+        # normalization layer
+        self.lns = nn.LayerNorm(out_dim)
+        self.bns = nn.BatchNorm1d(out_dim)
+
         # Train-free injective message passing, so freeze the parameters of weights
         if self.freeze:
             for param in self.linear.parameters():
@@ -61,6 +65,7 @@ class iMP(MessagePassing):
         h = torch.zeros_like(h).index_add(0, col, h[row])
         if not self.simple:
             h = self.linear(h)
+        # h = self.bns(h)
 
         # pre-activation skip connection
         if self.skip_connection and self.linear.in_features == self.linear.out_features:
@@ -148,6 +153,8 @@ class iGNN(nn.Module):
         return self.output_layer(x)
 
 
+def get_norm(x):
+    return x.norm(dim=1).mean().item()
 
 
 class iGNN_energy_version(nn.Module):
@@ -188,6 +195,75 @@ class iGNN_energy_version(nn.Module):
             for i in range(num_mp_layers)
         ])
 
+        # self.lns = torch.nn.ModuleList()
+        # self.bns = torch.nn.ModuleList()
+        # for i in range(num_mp_layers):
+        #     self.lns.append(torch.nn.LayerNorm(mp_width))
+        #     self.bns.append(torch.nn.BatchNorm1d(mp_width))
+
+        # Output layer
+        self.output_layer = nn.Linear(mp_width, out_dim)
+
+    def forward(self, data):
+        """
+        Forward pass through the stacked GNN layers.
+        Returns:
+            torch.Tensor: Node features after passing through all layers.
+        """
+        x, edge_index = data.x, data.edge_index
+
+        norms_per_layer = []
+        norms_per_layer.append(get_norm(x))
+        # print("Norm before input:", get_norm(x))
+        h = self.input_layer(x)
+        norms_per_layer.append(get_norm(h))
+        # print("Norm after input:", h.norm(dim=1).mean().item())
+
+        for layer in self.mp_layers:
+            h = layer(h, edge_index)
+            norms_per_layer.append(get_norm(h))
+            # print("Norm after each mp layer:", h.norm(dim=1).mean().item())
+
+        return self.output_layer(h), h, norms_per_layer # h is the embedding
+
+
+
+class iGNN_energy_version_fc(nn.Module):
+    """
+    A Graph Neural Network model.
+    Train with energy as part of the loss.
+
+    Args:
+        num_mp_layers: The number of injective layers to stack.
+        eps (float): The epsilon value to use for all layers.
+        act (nn.Module, optional): The activation function to apply between
+                                         layers (e.g., nn.ReLU()). If None, no activation
+                                         is applied. Defaults to None.
+    """
+    def __init__(self,
+                in_dim: int,
+                mp_width: int,
+                out_dim:int,
+                num_mp_layers: int = 3,
+                act=F.gelu,
+                freeze=True,
+                # dropout: float = 0,
+                alpha=1.0,
+                skip_connection = False
+                ):
+        super().__init__()
+        self.act = act
+        # self.dropout = dropout
+        self.skip_connection = skip_connection
+        self.alpha = alpha
+
+        self.input_layer = nn.Linear(in_dim, mp_width)
+
+        # Message passing layers
+        self.mp_layers = nn.ModuleList([
+            nn.Linear(in_features=mp_width, out_features=mp_width) for i in range(num_mp_layers)
+        ])
+
         # Output layer
         self.output_layer = nn.Linear(mp_width, out_dim)
 
@@ -202,10 +278,12 @@ class iGNN_energy_version(nn.Module):
         h = self.input_layer(x)
 
         for layer in self.mp_layers:
-            h = layer(h, edge_index)
+            h = layer(h)
+            h = F.gelu(h)
+            # h = h / deg.unsqueeze(1) # safe now, no divide by 0 issue
 
-        return self.output_layer(h)
 
+        return self.output_layer(h), h # h is the embedding
 
 
 

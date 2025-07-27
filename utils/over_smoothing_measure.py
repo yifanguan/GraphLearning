@@ -14,12 +14,22 @@ import torch.nn.functional as F
 #     return energy / X.shape[0]
 
 
+# def dirichlet_energy(x, edge_index):
+#     src, dst = edge_index
+#     diff = x[src] - x[dst]
+#     sq_norm = (diff ** 2).sum(dim=1)
+#     out = 0.5 * sq_norm.sum() / x.size(0) # divide by hidden_dim / x.size(1
+#     return out**0.5
+
 def dirichlet_energy(x, edge_index):
+    '''
+    normalized version: normalized by number of nodes
+    '''
     src, dst = edge_index
     diff = x[src] - x[dst]
     sq_norm = (diff ** 2).sum(dim=1)
-    out = 0.5 * sq_norm.sum() / x.size(0) # divide by hidden_dim / x.size(1
-    return out**0.5
+    loss = sq_norm.sum() / x.size(0)
+    return loss
 
 
 
