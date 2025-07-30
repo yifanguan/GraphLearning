@@ -7,3 +7,8 @@ injective_main.py: run injective (expressive power) experiments
 main.py: run train and test experiments, mainly for ablation
 
 model_train_main.py: used to train a model simply without doing ablation study and store the model state
+
+oversmoothing_main.py: over smoothing experiment (magnitude, etc)
+
+energy_loss_main.py: energy regularization experiments
+

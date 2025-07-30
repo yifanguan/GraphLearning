@@ -120,7 +120,7 @@ def run(dataset_name, num_mp_layers, num_fl_layers, mp_hidden_dim, fl_hidden_dim
     # print('Training nodes:', data.train_mask.sum().item())
 
     d = data.x.shape[1]
-    c = max(data.y.max().item() + 1, data.y.shape[0])
+    c = data.y.max().item() + 1
 
     # data split for train, val, and test
     if hasattr(data, 'train_mask'):
@@ -350,7 +350,7 @@ def run_overfitting_understanding(dataset_name, num_mp_layers, num_fl_layers, mp
     # print('Training nodes:', data.train_mask.sum().item())
 
     d = data.x.shape[1]
-    c = max(data.y.max().item() + 1, data.y.shape[0])
+    c = data.y.max().item() + 1
 
     # data split for train, val, and test
     if hasattr(data, 'train_mask'):
@@ -567,7 +567,7 @@ def run_with_regularization(dataset_name, optimizer, weight_decay, num_mp_layers
     data = load_dataset(data_dir='data', dataset_name=dataset_name).to(device)
 
     d = data.x.shape[1]
-    c = max(data.y.max().item() + 1, data.y.shape[0])
+    c = data.y.max().item() + 1
 
     # data split for train, val, and test
     if hasattr(data, 'train_mask'):

@@ -478,7 +478,7 @@ def generate_expressive_power_plot_transfer_learning(dataset_name='Cora', mp_dep
     fl_hidden_dim = 128
     epsilon = 5**0.5/2
     d = data.x.shape[1]
-    c = max(data.y.max().item() + 1, data.y.shape[0])
+    c = data.y.max().item() + 1
 
     model = DecoupleModel (
         in_dim=d,

@@ -25,7 +25,7 @@ from torch_geometric.utils import is_undirected
 
 
 
-# root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
+# root_dir = '.'
 # data_dir=f'{root_dir}/data'
 # data = load_dataset(data_dir=data_dir, dataset_name='texas')
 # k, _, distinct_features_each_iteration = wl_relabel(data, 30)
@@ -34,9 +34,10 @@ from torch_geometric.utils import is_undirected
 # k, _, distinct_features_each_iteration = wl_relabel(data, 30)
 
 
-# root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
+# root_dir = '.'
 # data_dir=f'data'
 # data = load_dataset(data_dir=data_dir, dataset_name='cornell5')
+# print(data)
 # k, _, distinct_features_each_iteration = wl_relabel(data, 30)
 # print(f'cornell5 data: {data}')
 
@@ -57,8 +58,17 @@ from torch_geometric.utils import is_undirected
 # k, _, _ = wl_relabel_multigraph(data, 20)
 
 
+# root_dir = '.'
+# data_dir=f'{root_dir}/data'
+# data = load_dataset(data_dir=data_dir, dataset_name='pubmed')
+# print(data)
+# print(is_undirected(data.edge_index))
+# k, _, distinct_features_each_iteration = wl_relabel(data, 30)
+# print(k)
 
-# root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
+
+
+# root_dir = '.'
 # data_dir=f'{root_dir}/data'
 # data = load_dataset(data_dir=data_dir, dataset_name='amazon-photo')
 # print(data)
@@ -66,7 +76,7 @@ from torch_geometric.utils import is_undirected
 # print(k)
 
 
-# root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
+# root_dir = '.'
 # data_dir=f'{root_dir}/data'
 # data = load_dataset(data_dir=data_dir, dataset_name='amazon-computers')
 # print(data)
@@ -74,7 +84,7 @@ from torch_geometric.utils import is_undirected
 # print(k)
 
 
-# root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
+# root_dir = '.'
 # data_dir=f'{root_dir}/data'
 # data = load_dataset(data_dir=data_dir, dataset_name='coauthor-cs')
 # print(data)
@@ -82,7 +92,7 @@ from torch_geometric.utils import is_undirected
 # print(k)
 
 
-# root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
+# root_dir = '.'
 # data_dir=f'{root_dir}/data'
 # data = load_dataset(data_dir=data_dir, dataset_name='coauthor-physics')
 # print(data)
@@ -90,7 +100,7 @@ from torch_geometric.utils import is_undirected
 # print(k)
 
 
-# root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
+# root_dir = '.'
 # data_dir=f'{root_dir}/data'
 # data = load_dataset(data_dir=data_dir, dataset_name='wikics')
 # print(data)
@@ -158,22 +168,23 @@ from torch_geometric.utils import is_undirected
 # print(k)
 
 
-# root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
+# root_dir = '.'
 # data_dir=f'{root_dir}/data'
 # data = load_dataset(data_dir=data_dir, dataset_name='ogbn-arxiv')
 # print(data)
+# print(is_undirected(data.edge_index))
 # k, _, distinct_features_each_iteration = wl_relabel(data, 30)
 # print(k)
 
 
 # TODO: run, it is too large
-root_dir = '.'
-data_dir=f'{root_dir}/data'
-data = load_dataset(data_dir=data_dir, dataset_name='ogbn-products')
+# root_dir = '.'
+# data_dir=f'{root_dir}/data'
+# data = load_dataset(data_dir=data_dir, dataset_name='ogbn-products')
 # print(data)
 # print(is_undirected(data.edge_index))
-# data.edge_index = to_undirected(data.edge_index)
-k, _, distinct_features_each_iteration = wl_relabel(data, 60)
+# # data.edge_index = to_undirected(data.edge_index)
+# k, _, distinct_features_each_iteration = wl_relabel(data, 60)
 # print(k)
 
 # TODO: run, it is too large
@@ -184,7 +195,7 @@ k, _, distinct_features_each_iteration = wl_relabel(data, 60)
 # k, _, distinct_features_each_iteration = wl_relabel(data, 30)
 # print(k)
 
-# root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
+# root_dir = '.'
 # data_dir=f'{root_dir}/data'
 # data = load_dataset(data_dir=data_dir, dataset_name='ogbn-proteins')
 # print(data)
@@ -209,7 +220,8 @@ k, _, distinct_features_each_iteration = wl_relabel(data, 60)
 # k, _, distinct_features_each_iteration = wl_relabel(data, 30)
 # print(k)
 
-# root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
-# data_dir=f'{root_dir}/data'
-# data = load_dataset(data_dir=data_dir, dataset_name='citeseer')
-# k, _, distinct_features_each_iteration = wl_relabel(data, 30)
+root_dir = '.'
+data_dir=f'{root_dir}/data'
+data = load_dataset(data_dir=data_dir, dataset_name='cora')
+print(data)
+k, _, distinct_features_each_iteration = wl_relabel(data, 30)
