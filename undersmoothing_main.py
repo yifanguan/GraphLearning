@@ -96,10 +96,10 @@ folder_name = folder.name
 
 
 undersmoothing_experiment(dataset_name='cora',
-                            mp_hidden_dim=4000, fl_hidden_dim=128,
-                            optimizer_lr=0.001,
-                            loss_func='CrossEntropyLoss', total_epoch=500,
-                            freeze=False, skip_connection=False, folder_name_suffix="")
+                          mp_hidden_dim=4000, fl_hidden_dim=128,
+                          optimizer_lr=0.001,
+                          loss_func='CrossEntropyLoss', total_epoch=500,
+                          freeze=False, skip_connection=False, folder_name_suffix="")
 # ---- Clean up GPU memory ----
 # torch.cuda.empty_cache()       # release cached blocks
 # gc.collect()                   # force Python to collect garbage

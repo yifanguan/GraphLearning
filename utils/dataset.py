@@ -23,6 +23,25 @@ import os
 import gdown
 import scipy
 
+
+def load_large_dataset(data_dir, name):
+    '''
+    Utils to load large dataset, this function returns extra split index, not just the graph.
+    '''
+    # Load dataset (with PyG format)
+    # dataset = PygNodePropPredDataset(root=f'{data_dir}/OGBN', name=name, transform=T.ToSparseTensor())
+    dataset = PygNodePropPredDataset(root=f'{data_dir}/OGBN', name=name)
+    data = dataset[0]
+
+    # Split indices
+    split_idx = dataset.get_idx_split()
+    train_idx = split_idx['train']
+    val_idx = split_idx['valid']
+    test_idx = split_idx['test']
+
+    return data, train_idx, val_idx, test_idx
+
+
 def load_dataset(data_dir, dataset_name, filter=None):
     """ Loader for Dataset
         Returns Dataset
@@ -148,7 +167,6 @@ def load_reddit_binary_dataset(data_dir, name, filter):
     data = dataset[0]
 
     return data
-
 
 def load_ogb_dataset(data_dir, name):
     '''

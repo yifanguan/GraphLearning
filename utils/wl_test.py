@@ -5,7 +5,7 @@ from hashlib import md5
 from torch_geometric.utils import to_networkx
 from torch_geometric.data import Data
 import torch
-from networkx.algorithms.graph_hashing import _hash_label, _neighborhood_aggregate
+from networkx.algorithms.graph_hashing import _hash_label, _neighborhood_aggregate_undirected
 from collections import Counter, defaultdict
 from torch_geometric.data import Batch
 
@@ -181,7 +181,7 @@ def weisfeiler_lehman_subgraph_hashes(
         """
         new_labels = {}
         for node in G.nodes():
-            label = _neighborhood_aggregate(G, node, labels, edge_attr=edge_attr)
+            label = _neighborhood_aggregate_undirected(G, node, labels, edge_attr=edge_attr)
             hashed_label = _hash_label(label, digest_size)
             new_labels[node] = hashed_label
             node_subgraph_hashes[node].append(hashed_label)

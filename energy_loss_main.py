@@ -99,7 +99,7 @@ def run(dataset_name, num_mp_layers, mp_hidden_dim,
     data = load_dataset(data_dir='data', dataset_name=dataset_name).to(device)
     data.edge_index = to_undirected(data.edge_index)
     d = data.x.shape[1]
-    c = max(data.y.max().item() + 1, data.y.shape[0])
+    c = data.y.max().item() + 1
 
     # data split for train, val, and test
     if hasattr(data, 'train_mask'):
@@ -107,13 +107,13 @@ def run(dataset_name, num_mp_layers, mp_hidden_dim,
         valid_idx = torch.where(data.val_mask)[0]
         test_idx = torch.where(data.test_mask)[0]
 
-        unlabeled_mask = ~(data.train_mask | data.val_mask | data.test_mask)
-        unlabeled_idx = torch.where(unlabeled_mask)[0]
+        # unlabeled_mask = ~(data.train_mask | data.val_mask | data.test_mask)
+        # unlabeled_idx = torch.where(unlabeled_mask)[0]
         # num_samples = int(len(unlabeled_idx) * extra_train_data_rate)
 
         # Randomly shuffle and select a portion
         # selected_unlabeled_idx = unlabeled_idx[torch.randperm(len(unlabeled_idx))[:num_samples]]
-        train_idx = torch.cat([train_idx, unlabeled_idx])
+        # train_idx = torch.cat([train_idx, unlabeled_idx])
     else:
         train_idx, valid_idx, test_idx = rand_train_test_idx(data.y, train_prop=0.6, valid_prop=0.2)
 
@@ -405,13 +405,13 @@ def main_experiment(dataset_name, num_mp_layers, mp_hidden_dim=3000, optimizer_l
 # torch.cuda.ipc_collect()       # clean up CUDA inter-process handles (optional)1
 
 # Create folder for results
-folder = Path(f"result_energy_loss_multi_run_3")
+folder = Path(f"result_energy_loss_multi_run_4")
 folder.mkdir(parents=True, exist_ok=True)
 folder_name = folder.name
 
 
 dataset_name = 'cora'
-num_mp_layers = 3
+num_mp_layers = 1
 mp_hidden_dim = 4000
 optimizer_lr = 0.001
 freeze = False
