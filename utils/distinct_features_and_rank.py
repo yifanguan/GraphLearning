@@ -191,7 +191,7 @@ def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, skip_conneci
             distinct_node_feature.append(distinct_node_feature[-1])
             distinct_node_feature_x.append(i)
 
-            dln = iMP(in_dim=dim, out_dim=dim, freeze=True, skip_connection=skip_conneciton) # hidden_dim=dim
+            dln = iMP(in_dim=dim, out_dim=dim, freeze=True, skip_connection=skip_conneciton, simple=True) # hidden_dim=dim
             h = dln(h, edge_index)
             mp_groups = find_group(h)
             # h_matrix = torch.unique(h, dim=0).double()

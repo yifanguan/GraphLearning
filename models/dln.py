@@ -25,7 +25,8 @@ class iMP(MessagePassing):
                  act=F.gelu,
                  freeze: bool = True,
                  alpha = 1.0,
-                 skip_connection=False):
+                 skip_connection=False,
+                 simple=False):
         # Initialize the MessagePassing base class with 'add' aggregation
         super().__init__(aggr='add')
     
@@ -36,6 +37,7 @@ class iMP(MessagePassing):
         self.skip_connection = skip_connection
         self.alpha = nn.Parameter(torch.tensor(alpha, dtype=torch.float))
         self.linear = nn.Linear(in_features=in_dim, out_features=out_dim)
+        self.simple = simple
 
         # Train-free injective message passing, so freeze the parameters of weights
         if self.freeze:
@@ -51,11 +53,14 @@ class iMP(MessagePassing):
         # use in degree; in case of undirected graph, this is the same as out degree
         deg = degree(col, num_nodes=num_nodes, dtype=x.dtype)
 
+        h = x
         # Compute T @ act(x) @ W
-        h = self.act(x)
+        if not self.simple:
+            h = self.act(x)
         h = h / deg.unsqueeze(1) # safe now, no divide by 0 issue
         h = torch.zeros_like(h).index_add(0, col, h[row])
-        h = self.linear(h)
+        if not self.simple:
+            h = self.linear(h)
 
         # pre-activation skip connection
         if self.skip_connection:
@@ -131,13 +136,14 @@ class iGNN(nn.Module):
         if self.mp_layers:
             for layer in self.mp_layers:
                 x = layer(x, edge_index)
+                x = F.dropout(x, p=self.dropout, training=self.training)
 
         if self.fc_layers:
             x_inject = x  # Save for injection
             for layer, proj in zip(self.fc_layers, self.injection_projs):
                 injected = proj(x_inject)
                 x = layer(self.act(x)) + injected
-                x = F.dropout(x, p=self.dropout, training=self.training)
+                # x = F.dropout(x, p=self.dropout, training=self.training)
 
         return self.output_layer(x)
 
