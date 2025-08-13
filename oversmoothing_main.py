@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from utils.dataset import load_dataset
 
 import torch
-from torch_geometric.utils import get_laplacian, to_undirected
+from torch_geometric.utils import get_laplacian, to_undirected, add_self_loops, degree
 
 
 # def embedding_rank(x: torch.Tensor, tol=1e-15) -> int:
@@ -20,14 +20,56 @@ def embedding_rank(x, tol=1e-15):
     except RuntimeError:
         return float('nan')
 
-def dirichlet_energy(x, edge_index):
-    src, dst = edge_index
-    diff = x[src] - x[dst]
-    sq_norm = (diff ** 2).sum(dim=1)  # shape: [num_edges]
-    # energy = 0.5 * sq_norm.sum() / (x.size(0) * x.size(1))  # normalize by num_nodes * dim
 
-    energy = 0.5 * sq_norm.sum() / ( x.size(1))  # normalize by num_nodes * dim
-    return energy.sqrt()
+def dirichlet_energy(x, edge_index):
+    """
+    Computes the symmetric normalized Dirichlet energy:
+        sum_{(i,j)} || x_i/sqrt(d_i) - x_j/sqrt(d_j) ||^2
+    with self-loops added to avoid zero degree nodes.
+
+    Args:
+        x (Tensor): Node embeddings of shape [num_nodes, feature_dim].
+        edge_index (LongTensor): Edge index of shape [2, num_edges].
+
+    Returns:
+        float: Normalized Dirichlet energy.
+    """
+    if not torch.isfinite(x).all():
+        return float('nan')
+
+    num_nodes = x.size(0)
+
+    # Add self-loops to ensure non-zero degrees
+    edge_index, _ = add_self_loops(edge_index, num_nodes=num_nodes)
+    row, col = edge_index
+    deg = degree(row, num_nodes=num_nodes, dtype=x.dtype)
+    deg_inv_sqrt = deg.pow(-0.5)
+    deg_inv_sqrt[deg == 0] = 0.0  # just in case
+
+    # No need to check deg == 0 anymore due to self-loops
+    x_norm = x * deg_inv_sqrt.unsqueeze(-1)
+
+    diff = x_norm[row] - x_norm[col]         # [num_edges, feature_dim]
+    sq_dist = (diff ** 2).sum(dim=-1)        # [num_edges]
+    energy = sq_dist.sum()
+    if not torch.isfinite(energy):
+        return float('nan')
+    return energy
+
+def normalized_dirichlet_energy(x, edge_index, energy=None):
+    energy = dirichlet_energy(x, edge_index) if energy is None else energy
+    denom = x.pow(2).sum()
+    return (energy / denom).item() if denom > 0 else float('nan')
+
+# def dirichlet_energy(x, edge_index):
+#     src, dst = edge_index
+#     diff = x[src] - x[dst]
+#     sq_norm = (diff ** 2).sum(dim=1)  # shape: [num_edges]
+#     # energy = 0.5 * sq_norm.sum() / (x.size(0) * x.size(1))  # normalize by num_nodes * dim
+
+#     energy = 0.5 * sq_norm.sum() / ( x.size(1))  # normalize by num_nodes * dim
+#     return energy.sqrt()
+
 
 class DeepGNN(nn.Module):
     def __init__(self, gnn_layer_cls, dim, num_layers, act=F.gelu, **layer_kwargs):
@@ -123,3 +165,59 @@ with torch.no_grad():
 for l, (e, u, r, n) in enumerate(zip(energies, num_uniques, unique_ranks, norms), 1):
     if l % 10 == 0 or l == 1:
         print(f"Layer {l:03d}: Dirichlet Energy = {e}, Unique Embeddings = {u}, Unique Rank = {r}, per-node norm = {n}")
+
+
+
+
+
+
+
+
+
+
+import matplotlib.pyplot as plt
+plt.style.use('seaborn-v0_8-muted')  # Clean aesthetic
+
+plt.figure(figsize=(10, 4))
+plt.plot(range(1, len(energies) + 1), energies,
+         marker='o', markersize=4, markerfacecolor='white',
+         linewidth=1.5, label='Dirichlet Energy')
+plt.title("Dirichlet Energy vs. GIN Layer Depth", fontsize=14)
+plt.xlabel("Layer", fontsize=12)
+plt.ylabel("Dirichlet Energy", fontsize=12)
+plt.grid(True, linestyle='--', alpha=0.6)
+plt.tight_layout()
+plt.show()
+
+import matplotlib.pyplot as plt
+plt.style.use('seaborn-v0_8-muted')  # Clean aesthetic
+
+plt.figure(figsize=(10, 4))
+plt.plot(range(1, len(energies) + 1), energies,
+         marker='o', markersize=4, markerfacecolor='white',
+         linewidth=1.5, label='Dirichlet Energy')
+
+plt.yscale('log')  # Set y-axis to log scale
+
+plt.title("Dirichlet Energy vs. GIN Layer Depth", fontsize=14)
+plt.xlabel("Layer", fontsize=12)
+plt.ylabel("Dirichlet Energy (log scale)", fontsize=12)
+plt.grid(True, linestyle='--', alpha=0.6)
+plt.tight_layout()
+plt.show()
+
+
+plt.figure(figsize=(10, 4))
+plt.plot(range(1, len(num_uniques) + 1), num_uniques,
+         marker='D', markersize=4, markerfacecolor='white',
+         linewidth=1.5, label='Unique Embeddings')
+plt.plot(range(1, len(unique_ranks) + 1), unique_ranks,
+         marker='s', markersize=4, markerfacecolor='white',
+         linewidth=1.5, label='Unique Rank')
+plt.title("# Unique Embeddings and Rank vs. GIN Layer Depth", fontsize=14)
+plt.xlabel("Layer", fontsize=12)
+plt.ylabel("Value", fontsize=12)
+plt.legend()
+plt.grid(True, linestyle='--', alpha=0.6)
+plt.tight_layout()
+plt.show()

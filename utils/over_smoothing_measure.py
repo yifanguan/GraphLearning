@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from torch_geometric.utils import get_laplacian, to_undirected, add_self_loops, degree
+
 # def dirichlet_energy(X, edge_index):
 #     '''
 #     Compute Dirichlet energy: 1/v * sum_{i in v} sum_{j in N_i} ||x_i - x_j||^2
@@ -30,6 +32,50 @@ def dirichlet_energy(x, edge_index):
     sq_norm = (diff ** 2).sum(dim=1)
     loss = sq_norm.sum() / x.size(0)
     return loss
+
+
+
+
+
+def dirichlet_energy(x, edge_index):
+    """
+    Computes the symmetric normalized Dirichlet energy:
+        sum_{(i,j)} || x_i/sqrt(d_i) - x_j/sqrt(d_j) ||^2
+    with self-loops added to avoid zero degree nodes.
+
+    Args:
+        x (Tensor): Node embeddings of shape [num_nodes, feature_dim].
+        edge_index (LongTensor): Edge index of shape [2, num_edges].
+
+    Returns:
+        float: Normalized Dirichlet energy.
+    """
+    if not torch.isfinite(x).all():
+        return float('nan')
+
+    num_nodes = x.size(0)
+
+    # Add self-loops to ensure non-zero degrees
+    # edge_index, _ = add_self_loops(edge_index, num_nodes=num_nodes)
+    row, col = edge_index
+    deg = degree(row, num_nodes=num_nodes, dtype=x.dtype)
+    deg_inv_sqrt = deg.pow(-0.5)
+    deg_inv_sqrt[deg == 0] = 0.0  # just in case
+
+    # No need to check deg == 0 anymore due to self-loops
+    x_norm = x * deg_inv_sqrt.unsqueeze(-1)
+
+    diff = x_norm[row] - x_norm[col]         # [num_edges, feature_dim]
+    sq_dist = (diff ** 2).sum(dim=-1)        # [num_edges]
+    energy = sq_dist.sum()
+    if not torch.isfinite(energy):
+        return float('nan')
+    return energy
+
+def normalized_dirichlet_energy(x, edge_index, energy=None):
+    energy = dirichlet_energy(x, edge_index) if energy is None else energy
+    denom = x.pow(2).sum()
+    return (energy / denom).item() if denom > 0 else float('nan')
 
 
 

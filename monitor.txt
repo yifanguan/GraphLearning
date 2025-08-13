@@ -1,0 +1,64 @@
+Dataset: ogbn-arxiv, num nodes: 169343, num node features: 128, num classes: 40
+
+🔍 GPU tensors at :
+<class 'torch.nn.parameter.Parameter'> torch.Size([]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([128, 128]) | 0.07 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([128]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([128]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([128]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([128]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([128]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([128, 128]) | 0.07 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([128]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([128]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([128]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([128]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([128]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([128, 128]) | 0.07 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([128]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([128]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([128]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([128]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([128]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([512, 128]) | 0.26 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([512]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([512, 512]) | 1.05 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([512]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([512, 512]) | 1.05 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([512]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([512, 128]) | 0.26 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([512]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([512, 128]) | 0.26 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([512]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([512, 128]) | 0.26 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([512]) | 0.00 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([40, 512]) | 0.08 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([40]) | 0.00 MB
+<class 'torch.Tensor'> torch.Size([128]) | 0.00 MB
+<class 'torch.Tensor'> torch.Size([128]) | 0.00 MB
+<class 'torch.Tensor'> torch.Size([]) | 0.00 MB
+<class 'torch.Tensor'> torch.Size([128]) | 0.00 MB
+<class 'torch.Tensor'> torch.Size([128]) | 0.00 MB
+<class 'torch.Tensor'> torch.Size([]) | 0.00 MB
+<class 'torch.Tensor'> torch.Size([128]) | 0.00 MB
+<class 'torch.Tensor'> torch.Size([128]) | 0.00 MB
+<class 'torch.Tensor'> torch.Size([]) | 0.00 MB
+<class 'torch.Tensor'> torch.Size([2, 2315598]) | 37.05 MB
+<class 'torch.Tensor'> torch.Size([169343, 128]) | 86.70 MB
+<class 'torch.Tensor'> torch.Size([169343, 1]) | 1.35 MB
+<class 'torch.Tensor'> torch.Size([169343]) | 1.35 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([128, 128]) | 0.07 MB
+<class 'torch.nn.parameter.Parameter'> torch.Size([128]) | 0.00 MB
+🔢 Total GPU tensor memory: 129.98 MB
+
+Experiment run
+dataset: ogbn-arxiv
+num_mp_layers: 3
+num_fl_layers: 3
+fl_width: 512
+optimizer_lr: 0.001
+loss_func: CrossEntropyLoss
+total_epoch: 2000
+energy_lambda: 0

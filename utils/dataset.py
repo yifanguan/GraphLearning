@@ -24,22 +24,118 @@ import gdown
 import scipy
 
 
+# def rand_train_test_idx(label, train_prop=0.5, valid_prop=0.25, ignore_negative=True):
+#     """randomly splits label into train/valid/test splits"""
+#     if ignore_negative:
+#         labeled_nodes = torch.where(label != -1)[0]
+#     else:
+#         labeled_nodes = label
+
+#     n = labeled_nodes.shape[0]
+#     train_num = int(n * train_prop)
+#     valid_num = int(n * valid_prop)
+
+#     perm = torch.as_tensor(np.random.permutation(n))
+
+#     train_indices = perm[:train_num]
+#     val_indices = perm[train_num : train_num + valid_num]
+#     test_indices = perm[train_num + valid_num :]
+
+#     if not ignore_negative:
+#         return train_indices, val_indices, test_indices
+
+#     train_idx = labeled_nodes[train_indices]
+#     valid_idx = labeled_nodes[val_indices]
+#     test_idx = labeled_nodes[test_indices]
+
+#     return train_idx, valid_idx, test_idx
+
+
+class NCDataset(object):
+    def __init__(self, name):
+        """
+        This is an unified dataset structure for experiments.
+        For simple and easy experiments, we can use raw dataset directly.
+
+        based off of ogb NodePropPredDataset
+        https://github.com/snap-stanford/ogb/blob/master/ogb/nodeproppred/dataset.py
+        Gives torch tensors instead of numpy arrays
+            - name (str): name of the dataset
+            - root (str): root directory to store the dataset folder
+            - meta_dict: dictionary that stores all the meta-information about data. Default is None,
+                    but when something is passed, it uses its information. Useful for debugging for external contributers.
+
+        Usage after construction:
+
+        split_idx = dataset.get_idx_split()
+        train_idx, valid_idx, test_idx = split_idx["train"], split_idx["valid"], split_idx["test"]
+        graph, label = dataset[0]
+
+        Where the graph is a dictionary of the following form:
+        dataset.graph = {'edge_index': edge_index,
+                         'edge_feat': None,
+                         'node_feat': node_feat,
+                         'num_nodes': num_nodes}
+        For additional documentation, see OGB Library-Agnostic Loader https://ogb.stanford.edu/docs/nodeprop/
+
+        """
+
+        self.name = name  # original name, e.g., ogbn-proteins
+        self.graph = {}
+        self.label = None
+        # used to record original pre-defined train, valid, test idx
+        self.train_idx = None
+        self.valid_idx = None
+        self.test_idx = None
+        self.num_classes = -1
+
+    # def get_idx_split(self, split_type='random', train_prop=.5, valid_prop=.25):
+    #     """
+    #     train_prop: The proportion of dataset for train split. Between 0 and 1.
+    #     valid_prop: The proportion of dataset for validation split. Between 0 and 1.
+    #     """
+
+    #     if split_type == 'random':
+    #         ignore_negative = False if self.name == 'ogbn-proteins' else True
+    #         train_idx, valid_idx, test_idx = rand_train_test_idx(
+    #             self.label, train_prop=train_prop, valid_prop=valid_prop, ignore_negative=ignore_negative)
+    #         split_idx = {'train': train_idx,
+    #                      'valid': valid_idx,
+    #                      'test': test_idx}
+
+    #     return split_idx
+
+    def __getitem__(self, idx):
+        assert idx == 0, 'This dataset has only one graph'
+        return self.graph, self.label
+
+    def __len__(self):
+        return 1
+
+    # def __repr__(self):
+    #     return '{}({})'.format(self.__class__.__name__, len(self))
+
+
 def load_large_dataset(data_dir, name):
     '''
     Utils to load large dataset, this function returns extra split index, not just the graph.
     '''
     # Load dataset (with PyG format)
     # dataset = PygNodePropPredDataset(root=f'{data_dir}/OGBN', name=name, transform=T.ToSparseTensor())
-    dataset = PygNodePropPredDataset(root=f'{data_dir}/OGBN', name=name)
-    data = dataset[0]
+    pyg_dataset = PygNodePropPredDataset(root=f'{data_dir}/OGBN', name=name)
+    nc_dataset = NCDataset(name)
+    nc_dataset.graph = pyg_dataset[0]
+    nc_dataset.graph.y = nc_dataset.graph.y.squeeze(-1)
+    nc_dataset.label = pyg_dataset[0].y.squeeze(-1)
+    nc_dataset.num_classes = pyg_dataset.num_classes
 
     # Split indices
-    split_idx = dataset.get_idx_split()
-    train_idx = split_idx['train']
-    val_idx = split_idx['valid']
-    test_idx = split_idx['test']
+    split_idx = pyg_dataset.get_idx_split()
+    nc_dataset.train_idx = split_idx['train']
+    nc_dataset.valid_idx = split_idx['valid']
+    nc_dataset.test_idx = split_idx['test']
 
-    return data, train_idx, val_idx, test_idx
+    return nc_dataset
 
 
 def load_dataset(data_dir, dataset_name, filter=None):

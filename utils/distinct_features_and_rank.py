@@ -147,7 +147,8 @@ def embedding_rank(x: torch.Tensor, tol=1e-15):
     # return unique_rows_with_tolerance(x_unique), torch.linalg.matrix_rank(x_unique, tol=tol)
 
 def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, skip_conneciton=False, tolerance=1e-5, dim_list=[50]):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = 'cpu'
     # root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
     data_dir=f'{root_dir()}/data'
     data = load_dataset(data_dir=data_dir, dataset_name=dataset_name, filter=None if dataset_name != 'mnist' else 0)
@@ -175,8 +176,11 @@ def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, skip_conneci
     print(f'is undirected: {is_undirected(edge_index)}')
     edge_index = to_undirected(edge_index)
 
+    data.to(device)
+    edge_index = edge_index.to(device)
+
     for dim in dim_list:
-        h = torch.ones((data.num_nodes, dim), dtype=torch.float32)
+        h = torch.ones((data.num_nodes, dim), dtype=torch.float32).to(device)
 
         distinct_rows_matrix = torch.unique(h, dim=0)
 
@@ -194,11 +198,11 @@ def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, skip_conneci
             distinct_node_feature.append(distinct_node_feature[-1])
             distinct_node_feature_x.append(i)
 
-            dln = iMP(in_dim=dim, out_dim=dim, freeze=True, skip_connection=skip_conneciton, simple=True) # hidden_dim=dim
+            dln = iMP(in_dim=dim, out_dim=dim, freeze=True, skip_connection=skip_conneciton, simple=True).to(device) # hidden_dim=dim
             h = dln(h, edge_index)
-            mp_groups = find_group(h)
+            # mp_groups = find_group(h)
             # h_matrix = torch.unique(h, dim=0).double()
-            
+
             num_distinct_features, rank_of_distinct_matrix_h = embedding_rank(h, tol=tolerance)
             print(f"num distinct structures: {num_distinct_features}")
             print(f"Rank of the distinct matrix: {rank_of_distinct_matrix_h.item()}")
@@ -238,7 +242,7 @@ def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, skip_conneci
     plt.tight_layout()
     # Save the figure to pdf
     plt.savefig(f'{root_dir()}/injective_plot/injective_{dataset_name}_mp_{mp_depth}_tolerance_{tolerance}_{get_timestamp()}.png', bbox_inches='tight')
-    plt.show()
+    # plt.show()
 
 
 # def generate_expressive_power_plot_multi_graph(dataset_name='mnist', mp_depth=6, tolerance=1e-5, dim_list=[50]):
