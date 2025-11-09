@@ -3,7 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import SGConv
-
+# https://pytorch-geometric.readthedocs.io/en/2.5.2/tutorial/neighbor_loader.html
+# https://medium.com/stanford-cs224w/a-tour-of-pygs-data-loaders-9f2384e48f8f
 
 import torch
 import torch.nn.functional as F
@@ -305,9 +306,10 @@ widths = [512]
 # [0,1,2,4,8,16]
 depths = [0,1,2,4,8,16]
 # depths = [4]
-lrs    = np.linspace(-11, 1, 15)   # add/remove as you like
+# lrs    = np.linspace(-11, 1, 15)   # add/remove as you like
+lrs = np.linspace(-14, -3, 12) # add/remove as you like
 
-num_epochs = 5000
+num_epochs = 1000
 log_every = 10
 
 # === Placeholder for results ===
@@ -316,53 +318,184 @@ results = {}
 # === Define loss function ===
 criterion = torch.nn.CrossEntropyLoss()
 
+sgc_k = 2
 from torch_geometric.loader import RandomNodeLoader, NeighborLoader
 import torch_geometric.transforms as T
 train_loader = None
 val_loader = None
 test_loader = None
-if dataset_name == 'ogbn-products':
+# if dataset_name == 'ogbn-products':
+if True:
     # Set split indices to masks.
-    for split in ['train', 'val', 'test']:
-        mask = torch.zeros(data.x.shape[0], dtype=torch.bool)
-        mask[getattr(dataset, f'{split}_idx')] = True
-        data[f'{split}_mask'] = mask
+    if dataset.train_mask.dtype != torch.bool: 
+        for split in ['train', 'val', 'test']:
+            mask = torch.zeros(data.x.shape[0], dtype=torch.bool)
+            mask[getattr(dataset, f'{split}_idx')] = True
+            data[f'{split}_mask'] = mask
+    else:
+        for split in ['train', 'val', 'test']: 
+            data[f'{split}_mask'] = getattr(dataset, f'{split}_idx')
 
-    train_loader = RandomNodeLoader(data, num_parts=10, shuffle=True,
-                                    num_workers=5)
-    # Increase the num_parts of the test loader if you cannot fit
-    # the full batch graph into your GPU:
-    test_loader = RandomNodeLoader(data, num_parts=1, num_workers=5)
+    # Neighbor sampling parameters
+    num_neighbors = [10] * sgc_k # sample 10 neighbors per layer (2-hop)
+    batch_size = 1024
+
+    train_loader = NeighborLoader(
+        data,
+        num_neighbors=num_neighbors,
+        input_nodes=data.train_mask,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=5,
+        persistent_workers=True,
+    )
+
+    # Validation loader: full neighbors (no sampling) or same as train for speed.
+    val_loader = NeighborLoader(
+        data,
+        num_neighbors=[-1],        # use full neighbors for val
+        input_nodes=data.val_mask,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=5,
+        persistent_workers=True,
+    )
+
+    test_loader = NeighborLoader(
+        data,
+        num_neighbors=[-1],   # full neighbors for eval (no sampling)
+        input_nodes=data.test_mask,     # all nodes
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=5,
+        persistent_workers=True,
+    )
+# else:
+#     # Neighbor sampling parameters
+#     num_neighbors = [10] * k # sample 10 neighbors per layer (2-hop)
+#     batch_size = 1024
+#     data
+
+#     train_loader = NeighborLoader(
+#         data,
+#         num_neighbors=num_neighbors,
+#         input_nodes=data.train_mask,
+#         batch_size=batch_size,
+#         shuffle=True,
+#         num_workers=5,
+#         persistent_workers=True,
+#     )
+
+#     val_loader = NeighborLoader(
+#         data,
+#         num_neighbors=num_neighbors,
+#         input_nodes=data.train_mask,
+#         batch_size=batch_size,
+#         shuffle=True,
+#         num_workers=5,
+#         persistent_workers=True,
+#     )
+
+#     test_loader = NeighborLoader(
+#         data,
+#         num_neighbors=[-1],   # full neighbors for eval (no sampling)
+#         input_nodes=None,     # all nodes
+#         batch_size=batch_size,
+#         shuffle=False,
+#         num_workers=5,
+#         persistent_workers=True,
+#     )
+
 
 transform = T.Compose([T.ToDevice(device), T.ToSparseTensor()])
 # transform = T.Compose([T.ToDevice(device)])
 
 
 # === Training function ===
-def train(model, data, dataset, optimizer):
+# def train(model, data, dataset, optimizer):
+#     model.train()
+#     optimizer.zero_grad()
+#     out = model(data.x, data.edge_index)
+#     # loss = criterion(out[data.train_mask], data.y[data.train_mask])
+#     loss = criterion(out[dataset.train_idx], data.y[dataset.train_idx])
+#     loss.backward()
+#     optimizer.step()
+#     return loss.item()
+
+# === Mini-batch training ===
+def train(model, train_loader, optimizer, device):
     model.train()
-    optimizer.zero_grad()
-    out = model(data.x, data.edge_index)
-    # loss = criterion(out[data.train_mask], data.y[data.train_mask])
-    loss = criterion(out[dataset.train_idx], data.y[dataset.train_idx])
-    loss.backward()
-    optimizer.step()
-    return loss.item()
+    total_loss = 0
+    total_examples = 0
+
+    for batch in train_loader:
+        batch = batch.to(device)
+        optimizer.zero_grad()
+
+        out = model(batch.x, batch.edge_index)
+        # only first batch_size nodes are seeds in NeighborLoader
+        # seed_nodes = batch.n_id[:batch.batch_size]
+        num_seeds = batch.input_id.numel()
+        loss = criterion(out[:num_seeds], batch.y[:num_seeds])
+
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item() * num_seeds
+        total_examples += num_seeds
+
+    return total_loss / total_examples
+
 
 # === Evaluation function ===
+# @torch.no_grad()
+# def evaluate(model, data, dataset):
+#     model.eval()
+#     out = model(data.x, data.edge_index)
+#     result = {}
+#     for split in ['train', 'val', 'test']:
+#         mask = getattr(dataset, f"{split}_mask")
+#         loss = criterion(out[mask], data.y[mask]).item()
+#         pred = out[mask].argmax(dim=1)
+#         acc = (pred == data.y[mask]).sum().item() / len(pred)
+#         result[f"{split}_loss"] = loss
+#         result[f"{split}_acc"] = acc
+#     return result
+
 @torch.no_grad()
-def evaluate(model, data, dataset):
+def evaluate(model, loaders, device):
     model.eval()
-    out = model(data.x, data.edge_index)
-    result = {}
-    for split in ['train', 'val', 'test']:
-        mask = getattr(dataset, f"{split}_mask")
-        loss = criterion(out[mask], data.y[mask]).item()
-        pred = out[mask].argmax(dim=1)
-        acc = (pred == data.y[mask]).sum().item() / len(pred)
-        result[f"{split}_loss"] = loss
-        result[f"{split}_acc"] = acc
-    return result
+    results = {}
+
+    for split, loader in loaders.items():
+        total_loss = 0
+        total_examples = 0
+        y_true, y_pred = [], []
+
+        for batch in loader:
+            batch = batch.to(device)
+            out = model(batch.x, batch.edge_index)
+            # seed_nodes = batch.n_id[:batch.batch_size]
+            num_seeds = batch.input_id.numel()
+            logits = out[:num_seeds]
+            preds = logits.argmax(dim=1)
+            labels = batch.y[:num_seeds]
+
+            loss = criterion(logits, labels)
+
+            total_loss += loss.item() * num_seeds
+            total_examples += num_seeds
+            y_true.append(labels.cpu())
+            y_pred.append(preds.cpu())
+
+        y_true = torch.cat(y_true)
+        y_pred = torch.cat(y_pred)
+        acc = (y_true == y_pred).float().mean().item()
+        results[f"{split}_loss"] = total_loss / total_examples
+        results[f"{split}_acc"] = acc
+
+    return results
+
 
 # === Main experiment loop ===
 rows = []
@@ -380,7 +513,7 @@ for width in widths:
                 hidden_dim=width,
                 output_dim=dataset.num_classes, # dataset.num_classes
                 num_fc_layers=depth, # depth = num_fc_layers + 1; actually, so we minus one here
-                K=2).to(device)
+                K=sgc_k).to(device)
 
             optimizer = make_mup_optimizer(model, base_lr=lr, opt="adam", weight_decay=0.0)
 
@@ -395,10 +528,12 @@ for width in widths:
             }
 
             for epoch in range(1, num_epochs + 1):
-                train_loss = train(model, data, dataset, optimizer)
+                # train_loss = train(model, data, dataset, optimizer)
+                train_loss = train(model, train_loader, optimizer, device)
 
                 if epoch == 1 or epoch % log_every == 0 or epoch == num_epochs:
-                    m = evaluate(model, data, dataset) # result dict
+                    # m = evaluate(model, data, dataset) # result dict
+                    m = evaluate(model, {'train' : train_loader, 'val' : val_loader, 'test' : test_loader}, device) # result dict
 
                     # update bests
                     for k in ["train_loss", "val_loss", "test_loss"]:
@@ -540,7 +675,7 @@ def plot_best_metric(df, metric, title, log_y=False):
     else:
         best_idx = dff[metric].idxmin()   # lower = better
 
-    best_idx = dff[metric].idxmax()
+    # best_idx = dff[metric].idxmax()
     best_row = dff.loc[best_idx]
     best_lr = best_row["lr"]
     best_val = best_row[metric]
