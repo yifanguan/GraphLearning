@@ -10,6 +10,8 @@ from torch_geometric.datasets import TUDataset
 from torch_geometric.datasets import Reddit
 from torch_geometric.data import Data
 import torch_geometric.transforms as T
+from .data_split_util import rand_train_test_idx
+from torch_geometric.utils import index_to_mask
 
 # from ogb.nodeproppred.dataset_dgl import DglNodePropPredDataset
 # NodePropPredDataset, 
@@ -89,21 +91,32 @@ class NCDataset(object):
         self.test_idx = None
         self.num_classes = -1
 
-    # def get_idx_split(self, split_type='random', train_prop=.5, valid_prop=.25):
-    #     """
-    #     train_prop: The proportion of dataset for train split. Between 0 and 1.
-    #     valid_prop: The proportion of dataset for validation split. Between 0 and 1.
-    #     """
+        # alias for trian_idx, valid_idx, and test_idx
+        self.train_mask = None
+        self.val_mask = None
+        self.test_mask = None
 
-    #     if split_type == 'random':
-    #         ignore_negative = False if self.name == 'ogbn-proteins' else True
-    #         train_idx, valid_idx, test_idx = rand_train_test_idx(
-    #             self.label, train_prop=train_prop, valid_prop=valid_prop, ignore_negative=ignore_negative)
-    #         split_idx = {'train': train_idx,
-    #                      'valid': valid_idx,
-    #                      'test': test_idx}
 
-    #     return split_idx
+    def get_idx_split(self, split_type='random', train_prop=.6, valid_prop=.2):
+        """
+        train_prop: The proportion of dataset for train split. Between 0 and 1.
+        valid_prop: The proportion of dataset for validation split. Between 0 and 1.
+        """
+
+        train_idx, valid_idx, test_idx = rand_train_test_idx(label=self.label, train_prop=train_prop, valid_prop=valid_prop)
+        split_idx = {'train': train_idx, 'valid': valid_idx, 'test': test_idx}
+
+        return split_idx
+
+        # if split_type == 'random':
+            # ignore_negative = False if self.name == 'ogbn-proteins' else True
+            # train_idx, valid_idx, test_idx = rand_train_test_idx(
+            #     self.label, train_prop=train_prop, valid_prop=valid_prop, ignore_negative=ignore_negative)
+            # split_idx = {'train': train_idx,
+            #              'valid': valid_idx,
+            #              'test': test_idx}
+
+        # return split_idx
 
     def __getitem__(self, idx):
         assert idx == 0, 'This dataset has only one graph'
@@ -132,8 +145,12 @@ def load_large_dataset(data_dir, name):
     # Split indices
     split_idx = pyg_dataset.get_idx_split()
     nc_dataset.train_idx = split_idx['train']
+    nc_dataset.val_idx = split_idx['valid']
     nc_dataset.valid_idx = split_idx['valid']
     nc_dataset.test_idx = split_idx['test']
+    nc_dataset.train_mask = split_idx['train']
+    nc_dataset.val_mask = split_idx['valid']
+    nc_dataset.test_mask = split_idx['test']
 
     return nc_dataset
 
@@ -163,7 +180,8 @@ def load_dataset(data_dir, dataset_name, filter=None):
     elif dataset_name in ('roman-empire', 'amazon-ratings', 'minesweeper', 'tolokers', 'questions'):
         data = load_hetero_dataset(data_dir, dataset_name)
     elif dataset_name in ('ogbn-arxiv', 'ogbn-products'):
-        data = load_ogb_dataset(data_dir, dataset_name)
+        # data = load_ogb_dataset(data_dir, dataset_name)
+        data = load_large_dataset(data_dir, dataset_name)
     elif dataset_name == 'pokec':
         data = load_pokec_mat(data_dir)
     elif dataset_name in ('ogbn-proteins'):
@@ -336,13 +354,39 @@ def load_webkb_dataset(data_dir, name, norm_feature=True):
 def load_planetoid_dataset(data_dir, name, norm_feature=True):
     if norm_feature:
         transform = T.NormalizeFeatures()
-        dataset = Planetoid(root=f'{data_dir}/Planetoid',
+        pyg_dataset = Planetoid(root=f'{data_dir}/Planetoid',
                                   name=name, transform=transform)
     else:
-        dataset = Planetoid(root=f'{data_dir}/Planetoid', name=name)
-    data = dataset[0]
+        pyg_dataset = Planetoid(root=f'{data_dir}/Planetoid', name=name)
 
-    return data
+    data = pyg_dataset[0]
+    nc_dataset = NCDataset(name)
+    nc_dataset.graph = data
+    nc_dataset.label = data.y
+    nc_dataset.num_classes = pyg_dataset.num_classes
+
+    # Split indices
+    nc_dataset.train_idx = torch.where(data.train_mask)[0]
+    nc_dataset.valid_idx = torch.where(data.val_mask)[0]
+    nc_dataset.test_idx = torch.where(data.test_mask)[0]
+
+    nc_dataset.train_mask = torch.where(data.train_mask)[0]
+    nc_dataset.val_mask = torch.where(data.val_mask)[0]
+    nc_dataset.test_mask = torch.where(data.test_mask)[0]
+
+    return nc_dataset
+
+
+# def load_planetoid_dataset(data_dir, name, norm_feature=True):
+#     if norm_feature:
+#         transform = T.NormalizeFeatures()
+#         dataset = Planetoid(root=f'{data_dir}/Planetoid',
+#                                   name=name, transform=transform)
+#     else:
+#         dataset = Planetoid(root=f'{data_dir}/Planetoid', name=name)
+#     data = dataset[0]
+
+#     return data
 
 
 def load_facebook_100_dataset(data_dir, name, norm_feature=True):
@@ -381,27 +425,64 @@ def load_mnist_dataset(data_dir, name, norm_feature=True, filter=None):
 
     return dataset
 
+
 def load_amazon_dataset(data_dir, name, norm_feature=True):
     if name == 'amazon-photo':
         if norm_feature:
             transform = T.NormalizeFeatures()
-            dataset = Amazon(root=f'{data_dir}/Amazon',
+            pyg_dataset = Amazon(root=f'{data_dir}/Amazon',
                                    name='Photo', transform=transform)
         else:
-            dataset = Amazon(root=f'{data_dir}/Amazon',
+            pyg_dataset = Amazon(root=f'{data_dir}/Amazon',
                                    name='Photo')
     elif name == 'amazon-computers':
         if norm_feature:
             transform = T.NormalizeFeatures()
-            dataset = Amazon(root=f'{data_dir}/Amazon',
+            pyg_dataset = Amazon(root=f'{data_dir}/Amazon',
                                    name='Computers', transform=transform)
         else:
-            dataset = Amazon(root=f'{data_dir}/Amazon',
+            pyg_dataset = Amazon(root=f'{data_dir}/Amazon',
                                    name='Computers')
+    data = pyg_dataset[0]
+    nc_dataset = NCDataset(name)
+    nc_dataset.graph = data
+    nc_dataset.label = data.y
+    nc_dataset.num_classes = pyg_dataset.num_classes
 
-    data = dataset[0]
+    # Split indices
+    split_idx = nc_dataset.get_idx_split()
+    nc_dataset.train_idx = split_idx['train']
+    nc_dataset.valid_idx = split_idx['valid']
+    nc_dataset.test_idx = split_idx['test']
 
-    return data
+    nc_dataset.train_mask = torch.where(data.train_mask)[0]
+    nc_dataset.val_mask = torch.where(data.val_mask)[0]
+    nc_dataset.test_mask = torch.where(data.test_mask)[0]
+
+    return nc_dataset
+
+
+# def load_amazon_dataset(data_dir, name, norm_feature=True):
+#     if name == 'amazon-photo':
+#         if norm_feature:
+#             transform = T.NormalizeFeatures()
+#             dataset = Amazon(root=f'{data_dir}/Amazon',
+#                                    name='Photo', transform=transform)
+#         else:
+#             dataset = Amazon(root=f'{data_dir}/Amazon',
+#                                    name='Photo')
+#     elif name == 'amazon-computers':
+#         if norm_feature:
+#             transform = T.NormalizeFeatures()
+#             dataset = Amazon(root=f'{data_dir}/Amazon',
+#                                    name='Computers', transform=transform)
+#         else:
+#             dataset = Amazon(root=f'{data_dir}/Amazon',
+#                                    name='Computers')
+
+#     data = dataset[0]
+
+#     return data
 
 def load_coauthor_dataset(data_dir, name, norm_feature=True):
     if name == 'coauthor-cs':
@@ -427,10 +508,39 @@ def load_coauthor_dataset(data_dir, name, norm_feature=True):
 
 
 def load_wikics_dataset(data_dir, name, norm_feature=True):
-    dataset = WikiCS(root=f'{data_dir}/WikiCS')
-    data = dataset[0]
+    pyg_dataset = WikiCS(root=f'{data_dir}/WikiCS')
+    data = pyg_dataset[0]
 
-    return data
+    nc_dataset = NCDataset(name)
+    nc_dataset.graph = data
+    nc_dataset.label = data.y
+    nc_dataset.num_classes = pyg_dataset.num_classes
+
+    splits_list = []
+    for i in range(data.train_mask.shape[1]):
+        splits = {}
+        splits['train'] = torch.where(data.train_mask[:,i])[0]
+        splits['valid'] = torch.where(torch.logical_or(data.val_mask, data.stopping_mask)[:,i])[0]
+        splits['test'] = torch.where(data.test_mask[:])[0]
+        splits_list.append(splits)
+    nc_dataset.splits_list = splits_list
+
+    # Split indices
+    nc_dataset.train_idx = splits_list[0]['train']
+    nc_dataset.valid_idx = splits_list[0]['valid']
+    nc_dataset.test_idx = splits_list[0]['test']
+
+    nc_dataset.train_mask = splits_list[0]['train']
+    nc_dataset.val_mask = splits_list[0]['valid']
+    nc_dataset.test_mask = splits_list[0]['test']
+
+    return nc_dataset
+
+# def load_wikics_dataset(data_dir, name, norm_feature=True):
+#     dataset = WikiCS(root=f'{data_dir}/WikiCS')
+#     data = dataset[0]
+
+#     return data
 
 
 # class Dataset(InMemoryDataset):
