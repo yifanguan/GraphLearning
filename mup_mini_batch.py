@@ -242,8 +242,8 @@ def train_val_test_mask_helper(dataset_name, dataset):
 
 from utils.dataset import load_dataset, load_large_dataset
 from torch_geometric.utils import to_undirected, add_self_loops
-dataset_name = 'ogbn-arxiv'
-# dataset_name = 'ogbn-products'
+# dataset_name = 'ogbn-arxiv'
+dataset_name = 'ogbn-products'
 # dataset_name = 'cora'
 # dataset_name = 'citeseer'
 # dataset_name = 'wikics'
@@ -260,7 +260,7 @@ dataset.graph.edge_index = to_undirected(dataset.graph.edge_index)
 dataset.graph.edge_index, _ = add_self_loops(dataset.graph.edge_index, num_nodes=n)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 data = dataset.graph
-data = data.to(device)
+# data = data.to(device) # Nov 9th, not necessary because batch will be moved to gpu
 
 train_val_test_mask_helper(dataset_name, dataset)
 
@@ -309,7 +309,7 @@ depths = [0,1,2,4,8,16]
 # lrs    = np.linspace(-11, 1, 15)   # add/remove as you like
 lrs = np.linspace(-14, -3, 12) # add/remove as you like
 
-num_epochs = 1000
+num_epochs = 500
 log_every = 10
 
 # === Placeholder for results ===
@@ -338,7 +338,7 @@ if True:
 
     # Neighbor sampling parameters
     num_neighbors = [10] * sgc_k # sample 10 neighbors per layer (2-hop)
-    batch_size = 1024
+    batch_size = 64
 
     train_loader = NeighborLoader(
         data,
@@ -499,7 +499,7 @@ def evaluate(model, loaders, device):
 
 # === Main experiment loop ===
 rows = []
-folder_name = 'mup_arxiv_mini_batch'
+folder_name = 'mup_ogbn_products_mini_batch'
 
 for width in widths:
     for depth in depths:
