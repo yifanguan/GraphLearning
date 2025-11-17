@@ -97,6 +97,7 @@ class MuGNN(nn.Module):
         super().__init__()
         self.act = {"relu": F.relu, "gelu": F.gelu, "tanh": torch.tanh}.get(activation, F.relu)
 
+        self.hidden_dim = hidden_dim
         # SGC: linear transform after K-step propagation
         self.sgc = SGConv(in_channels=input_dim, out_channels=hidden_dim, K=K, cached=cached, bias=bias)
         # SGConv contains a .lin (nn.Linear); we μP-init it as "input weights"
@@ -115,10 +116,12 @@ class MuGNN(nn.Module):
 
         # Readout (final linear)
         self.readout = nn.Linear(hidden_dim, output_dim, bias=bias)
-        init_mup_readout(self.readout)
+        # init_mup_readout(self.readout)
+        nn.init.zeros_(self.readout.weight)
 
         # simple residual scaling like your draft
-        self.scale = (1.0 / math.sqrt(num_fc_layers)) if (num_fc_layers > 0 and residual_scale is None) else (residual_scale or 1.0)
+        self.multiplier = 3.0
+        self.scale = (self.multiplier / math.sqrt(num_fc_layers)) if (num_fc_layers > 0 and residual_scale is None) else (residual_scale or 1.0)
 
     def forward(self, x, edge_index):
         x = self.sgc(x, edge_index)
@@ -126,6 +129,9 @@ class MuGNN(nn.Module):
             x_in = x
             x = lin(self.act(x))
             x = x_in + self.scale * x
+        # x = self.readout(x)
+        # x = x / self.hidden_dim # output weight multiplier
+        # return x
         return self.readout(x)
 
 
@@ -136,6 +142,9 @@ def mup_param_groups(model, base_lr: float, opt: str = "adam", weight_decay: flo
     # Precompute depth scale (number of hidden layers)
     depth = max(1, len(model.fcs))
     depth_scale = depth ** 0.5  # sqrt(depth)
+
+    # if opt == "adam":
+    #     base_lr = base_lr * depth_scale
 
     # ----- INPUT (SGConv) -----
     fin, fout = fan_in_out(model.sgc)
@@ -176,7 +185,7 @@ def make_mup_optimizer(model, base_lr, opt="adam", weight_decay=0.0, momentum=0.
         return torch.optim.SGD(groups, lr=base_lr, momentum=momentum)
     else:
         return torch.optim.Adam(groups, lr=base_lr, betas=betas)
-    
+
 
 
 
@@ -292,9 +301,11 @@ print(f"Using device: {device}")
 # === Hyperparameters ===
 # widths = [128, 256, 512, 1024]
 widths = [512]
-depths = [1,2,4,6,8,10]
+# depths = [1,2,4,6,8,10]
+# [0,1,2,4,8,16]
+depths = [0,1,2,4,8,16]
 # depths = [4]
-lrs    = np.linspace(-6, 0.5, 20)   # add/remove as you like
+lrs    = np.linspace(-11, 1, 15)   # add/remove as you like
 
 num_epochs = 5000
 log_every = 10
@@ -333,6 +344,7 @@ def evaluate(model, data, dataset):
 
 # === Main experiment loop ===
 rows = []
+folder_name = 'mup_arxiv_mini_batch'
 
 for width in widths:
     for depth in depths:
@@ -345,8 +357,8 @@ for width in widths:
                 input_dim=d, # dataset.num_node_features
                 hidden_dim=width,
                 output_dim=dataset.num_classes, # dataset.num_classes
-                num_fc_layers=depth-1, # depth = num_fc_layers + 1; actually, so we minus one here
-                K=1).to(device)
+                num_fc_layers=depth, # depth = num_fc_layers + 1; actually, so we minus one here
+                K=2).to(device)
 
             optimizer = make_mup_optimizer(model, base_lr=lr, opt="adam", weight_decay=0.0)
 
@@ -402,6 +414,40 @@ for width in widths:
             })
 
 
+import pandas as pd
+from utils.timestamp import get_timestamp
+
+# record full experiment results
+df = pd.DataFrame(rows).sort_values(["depth", "width", "lr"]).reset_index(drop=True)
+csv_path = f"{folder_name}/{dataset_name}_all_runs_{get_timestamp()}.csv"
+df.to_csv(csv_path, index=False)
+
+print(f"\nSaved all experiment runs to: {csv_path}")
+print(df.head())
+
+# aggregate results among (width, depth) pairs, and record the results
+# ============================================================
+# Aggregate best accuracies across LRs
+# ============================================================
+summary_df = (
+    df.groupby(["depth", "width"], as_index=False)
+      .agg({
+          "best_train_acc": "max",
+          "best_val_acc": "max",
+          "best_test_acc": "max",
+          "best_train_loss": "min",
+          "best_val_loss": "min",
+          "best_test_loss": "min"
+      })
+      .sort_values(["depth", "width"])
+)
+
+# print("\n=== BEST ACCURACY SUMMARY (per width, depth) ===")
+# print(summary_df.to_string(index=False))
+
+# Save to CSV
+summary_path = f'{folder_name}/{dataset_name}_best_accuracy_summary_{get_timestamp()}.csv'
+summary_df.to_csv(summary_path, index=False)
 
 
 
@@ -466,6 +512,28 @@ def plot_best_metric(df, metric, title, log_y=False):
             markersize=4,
         )
 
+    # ---- Find and mark the global best value ----
+    if "acc" in metric:
+        best_idx = dff[metric].idxmax()   # higher = better
+    else:
+        best_idx = dff[metric].idxmin()   # lower = better
+
+    # best_idx = dff[metric].idxmax()
+    best_row = dff.loc[best_idx]
+    best_lr = best_row["lr"]
+    best_val = best_row[metric]
+
+    # Add horizontal dashed line and annotation
+    plt.axhline(best_val, color="gray", linestyle="--", linewidth=1)
+    plt.text(
+        x=dff["lr"].min(), y=best_val + 0.002,  # a little above the line
+        s=f"Best {metric}: {best_val:.4f}",
+        color="gray",
+        fontsize=10,
+        ha="left",
+        va="bottom"
+    )
+
     # Scales and labels
     if log_y:
         plt.yscale("log")
@@ -490,8 +558,7 @@ def plot_best_metric(df, metric, title, log_y=False):
         plt.legend(handles=width_handles, title="Width", loc="center right")
 
     plt.tight_layout()
-    plt.savefig(f'mup_arxiv_k_1/{dataset_name}_{title}_{get_timestamp()}.png')
-
+    plt.savefig(f'{folder_name}/{dataset_name}_{title}_{get_timestamp()}.png')
 
 plot_best_metric(df, "best_train_loss", "Best Train Loss vs LR", log_y=True)
 plot_best_metric(df, "best_val_loss",  "Best Val Loss vs LR",   log_y=True)
