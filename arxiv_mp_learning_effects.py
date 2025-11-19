@@ -109,7 +109,7 @@ def run(dataset_name, num_mp_layers, mp_hidden_dim, num_fl_layers, fl_hidden_dim
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     display_step = 10
-    dataset = load_dataset(data_dir='data', dataset_name=dataset_name)
+    dataset = load_large_dataset(data_dir='data', name=dataset_name)
 
     d = dataset.graph.x.shape[1]
     c = dataset.label.max().item() + 1
@@ -151,8 +151,8 @@ def run(dataset_name, num_mp_layers, mp_hidden_dim, num_fl_layers, fl_hidden_dim
         skip_connection=skip_connection
     ).to(device)
 
-    # total_params = sum(p.numel() for p in model.parameters())
-    # print(f"Total parameters: {total_params}")
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Total parameters: {total_params}")
 
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=optimizer_lr)
@@ -338,7 +338,7 @@ def main_experiment(dataset_name, num_mp_layers, mp_hidden_dim=3000, num_fl_laye
 # gc.collect()                   # force Python to collect garbage
 # torch.cuda.ipc_collect()       # clean up CUDA inter-process handles (optional)1
 
-dataset_name = 'amazon-computers'
+dataset_name = 'ogbn-arxiv'
 # Create folder for results
 folder = Path(f"result_{dataset_name}")
 folder.mkdir(parents=True, exist_ok=True)
@@ -346,12 +346,12 @@ folder_name = folder.name
 
 num_mp_layers = 2
 mp_hidden_dim = fl_hidden_dim = 512
-num_fl_layers = 0
+num_fl_layers = 1
 optimizer_lr = 0.01
 freeze = False
 skip_connection = False
-mp_layers = [0,1,2,3,4,5]
-total_epoch=1500
+mp_layers = [0,1,2,3,4,5,6,7]
+total_epoch=2000
 all_train_acc = []
 all_valid_acc = []
 all_test_acc = []

@@ -16,7 +16,7 @@ def add_hyperparameter_text(params):
     # param_text = "Hyperparameters:\n" + "   ".join(f"{k}: {v}" for k, v in params.items())
     param_text = "Hyperparameters:      "
     items = list(params.items())
-    for i in range(0, len(items), 4):
+    for i in range(0, len(items), 3):
         line = "   ".join(f"{k}: {v}" for k, v in items[i:i+4])
         param_text += line + "\n"
 

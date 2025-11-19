@@ -69,8 +69,7 @@ import gc
 # generate_expressive_power_plot(dataset_name='wikics', mp_depth=6, tolerance=1e-5, dim_list=[50])
 
 
-generate_expressive_power_plot(dataset_name='ogbn-arxiv', mp_depth=8, tolerance=1e-5, dim_list=[50])
-
+generate_expressive_power_plot(dataset_name='ogbn-arxiv', mp_depth=11, tolerance=1e-5, dim_list=[50])
 
 
 # generate_expressive_power_plot(dataset_name='amazon-photo', mp_depth=6, tolerance=1e-5, dim_list=[50, 100, 500, 1000, 2000, 4000, 8000, 16000])

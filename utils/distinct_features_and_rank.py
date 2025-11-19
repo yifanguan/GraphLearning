@@ -6,7 +6,7 @@ from datetime import datetime
 import math
 # Add parent folder to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from models.dln import InjectiveMP, DecoupleModel, MPOnlyModel, iMP, iGNN
+from models.dln import InjectiveMP, DecoupleModel, MPOnlyModel, iMP, iGNN, Simple_SGConv
 from utils.wl_test import wl_relabel, find_group
 from utils.dataset import load_dataset
 from utils.timestamp import get_timestamp
@@ -151,6 +151,7 @@ def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, skip_conneci
     device = 'cpu'
     # root_dir = '/Users/yifanguan/gnn_research/GraphLearning'
     data_dir=f'{root_dir()}/data'
+    # data = load_dataset(data_dir=data_dir, dataset_name=dataset_name, filter=None if dataset_name != 'mnist' else 0).graph
     data = load_dataset(data_dir=data_dir, dataset_name=dataset_name, filter=None if dataset_name != 'mnist' else 0)
     if dataset_name == 'mnist':
         data = Batch.from_data_list(data)
@@ -198,7 +199,8 @@ def generate_expressive_power_plot(dataset_name='Cora', mp_depth=6, skip_conneci
             distinct_node_feature.append(distinct_node_feature[-1])
             distinct_node_feature_x.append(i)
 
-            dln = iMP(in_dim=dim, out_dim=dim, freeze=True, skip_connection=skip_conneciton, simple=True).to(device) # hidden_dim=dim
+            dln = Simple_SGConv(in_channels=dim,out_channels=dim,K=1)
+            # dln = iMP(in_dim=dim, out_dim=dim, freeze=True, skip_connection=skip_conneciton, simple=True).to(device) # hidden_dim=dim
             h = dln(h, edge_index)
             # mp_groups = find_group(h)
             # h_matrix = torch.unique(h, dim=0).double()

@@ -27,7 +27,7 @@ from utils.dataset import load_dataset, load_large_dataset
 from utils.data_split_util import rand_train_test_idx
 from utils.timestamp import get_timestamp
 from torch_geometric.utils import to_undirected, add_self_loops
-from utils.over_smoothing_measure import dirichlet_energy, normalized_dirichlet_energy
+# from utils.over_smoothing_measure import dirichlet_energy, normalized_dirichlet_energy
 import gc
 
 # TODO: improve result folder structure
@@ -64,13 +64,10 @@ def train(model, data, train_idx, optimizer, criterion, energy_lambda, energy_th
     model.train()
     out, embedding = model(data)
     loss = criterion(out[train_idx], data.y[train_idx])
-    with torch.no_grad():
-        energy_loss = dirichlet_energy(embedding, data.edge_index)
-        norm_energy_loss = normalized_dirichlet_energy(embedding, data.edge_index, energy_loss)
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
-    return loss.item(), norm_energy_loss
+    return loss.item()
 
 
 @torch.no_grad()
@@ -151,10 +148,6 @@ def run(dataset_name, num_mp_layers, mp_hidden_dim, num_fl_layers, fl_hidden_dim
         skip_connection=skip_connection
     ).to(device)
 
-    # total_params = sum(p.numel() for p in model.parameters())
-    # print(f"Total parameters: {total_params}")
-
-
     optimizer = torch.optim.AdamW(model.parameters(), lr=optimizer_lr)
     criterion = torch.nn.CrossEntropyLoss()
     if loss_func == 'CrossEntropyLoss':
@@ -180,10 +173,9 @@ def run(dataset_name, num_mp_layers, mp_hidden_dim, num_fl_layers, fl_hidden_dim
     train_accuracy_list = []
     valid_accuracy_list = []
     test_accuracy_list = []
-    norm_energy_loss_list = []
 
     for epoch in tqdm(range(1,total_epoch)):
-        train_learning_loss, norm_energy_loss = train(model,dataset.graph,train_idx,optimizer,criterion, energy_lambda, energy_threshold)
+        train_learning_loss = train(model,dataset.graph,train_idx,optimizer,criterion, energy_lambda, energy_threshold)
         train_acc, valid_acc, test_acc, valid_learning_loss, test_learning_loss  = evaluate(model, criterion, dataset.graph, train_idx, valid_idx, test_idx, energy_lambda)
 
         train_accuracy_list.append(train_acc)
@@ -193,7 +185,7 @@ def run(dataset_name, num_mp_layers, mp_hidden_dim, num_fl_layers, fl_hidden_dim
         # valid_loss_list.append(valid_loss)
         # test_loss_list.append(test_loss)
         # energy_loss_list.append(energy_loss)
-        norm_energy_loss_list.append(norm_energy_loss)
+        # norm_energy_loss_list.append(norm_energy_loss)
         train_loss_list.append(train_learning_loss)
         valid_loss_list.append(valid_learning_loss)
         test_loss_list.append(test_learning_loss)
@@ -278,17 +270,17 @@ def run(dataset_name, num_mp_layers, mp_hidden_dim, num_fl_layers, fl_hidden_dim
     # plt.clf()  # Clear the current figure for the next plot
     plt.close()
     # Plotting the energy in one figure
-    fig, ax = add_hyperparameter_text(params)
-    # plt.figure(figsize=(10, 5))
-    ax.plot(norm_energy_loss_list, label='Normalized Dirichlet Energy', color='blue')
-    plt.xlabel('Epochs')
-    plt.ylabel('Energy (log scale)')
-    plt.title('Energy vs Epochs')
-    ax.set_yscale("log")
-    plt.legend()
-    plt.savefig('{}/energy_{}_{}.png'.format(folder_name, dataset_name, timestamp))
+    # fig, ax = add_hyperparameter_text(params)
+    # # plt.figure(figsize=(10, 5))
+    # ax.plot(norm_energy_loss_list, label='Normalized Dirichlet Energy', color='blue')
+    # plt.xlabel('Epochs')
+    # plt.ylabel('Energy (log scale)')
+    # plt.title('Energy vs Epochs')
+    # ax.set_yscale("log")
+    # plt.legend()
+    # plt.savefig('{}/energy_{}_{}.png'.format(folder_name, dataset_name, timestamp))
     # # plt.clf()  # Clear the current figure for the next plot
-    plt.close()
+    # plt.close()
 
     # if save_model:
     #     torch.save(model.state_dict(), F'saved_models/model_weights_{dataset_name}_{num_mp_layers}_{mp_hidden_dim}_{num_fl_layers}_{fl_hidden_dim}_{dropout}.pth')
@@ -297,7 +289,7 @@ def run(dataset_name, num_mp_layers, mp_hidden_dim, num_fl_layers, fl_hidden_dim
     #         train_loss_list, valid_loss_list, test_loss_list, train_learning_loss_list, \
     #         valid_learning_loss_list, test_learning_loss_list, norms_list, norm_energy_loss_list
     return best_val, best_test, model, train_accuracy_list, valid_accuracy_list, test_accuracy_list, train_loss_list, \
-            valid_loss_list, test_loss_list, norm_energy_loss_list
+            valid_loss_list, test_loss_list
 
 
 
@@ -317,14 +309,14 @@ def main_experiment(dataset_name, num_mp_layers, mp_hidden_dim=3000, num_fl_laye
     #     best_tests[i] = best_test
     # num_mp_layers = 6
     best_val, best_test, _, train_accuracy_list, valid_accuracy_list, test_accuracy_list, \
-    train_learning_loss_list, valid_learning_loss_list, test_learning_loss_list, norm_energy_loss_list = \
+    train_learning_loss_list, valid_learning_loss_list, test_learning_loss_list = \
             run(dataset_name, num_mp_layers, mp_hidden_dim, num_fl_layers, fl_hidden_dim, num_mp_smoothing_layers,
                 optimizer_lr, loss_func, total_epoch,
                 freeze=freeze, save_model=False, skip_connection=skip_connection, dropout=0,
                 folder_name_suffix=folder_name_suffix, energy_lambda=energy_lambda, energy_threshold=energy_threshold)
     
     return best_val, best_test, train_accuracy_list, valid_accuracy_list, test_accuracy_list, \
-            train_learning_loss_list, valid_learning_loss_list, test_learning_loss_list, norm_energy_loss_list
+            train_learning_loss_list, valid_learning_loss_list, test_learning_loss_list
 
 
 # main_experiment(dataset_name='cora',
@@ -338,9 +330,9 @@ def main_experiment(dataset_name, num_mp_layers, mp_hidden_dim=3000, num_fl_laye
 # gc.collect()                   # force Python to collect garbage
 # torch.cuda.ipc_collect()       # clean up CUDA inter-process handles (optional)1
 
-dataset_name = 'amazon-computers'
+dataset_name = 'citeseer'
 # Create folder for results
-folder = Path(f"result_{dataset_name}")
+folder = Path(f"result_{dataset_name}_2")
 folder.mkdir(parents=True, exist_ok=True)
 folder_name = folder.name
 
@@ -351,7 +343,7 @@ optimizer_lr = 0.01
 freeze = False
 skip_connection = False
 mp_layers = [0,1,2,3,4,5]
-total_epoch=1500
+total_epoch=1000
 all_train_acc = []
 all_valid_acc = []
 all_test_acc = []
@@ -360,11 +352,10 @@ best_tests = []
 all_train_learning_loss = []
 all_valid_learning_loss = []
 all_test_learning_loss = []
-all_norm_energy_loss_list = []
 
 for num_mp_layers in mp_layers:
     best_val, best_test, train_accuracy_list, valid_accuracy_list, test_accuracy_list, \
-    train_learning_loss_list, valid_learning_loss_list, test_learning_loss_list, norm_energy_loss_list = \
+    train_learning_loss_list, valid_learning_loss_list, test_learning_loss_list = \
     main_experiment(dataset_name=dataset_name,
                     num_mp_layers=num_mp_layers,
                     mp_hidden_dim=mp_hidden_dim,
@@ -381,7 +372,6 @@ for num_mp_layers in mp_layers:
     all_train_learning_loss.append(train_learning_loss_list)
     all_valid_learning_loss.append(valid_learning_loss_list)
     all_test_learning_loss.append(test_learning_loss_list)
-    all_norm_energy_loss_list.append(norm_energy_loss_list)
     # ---- Clean up GPU memory ----
     torch.cuda.empty_cache()       # release cached blocks
     gc.collect()                   # force Python to collect garbage
@@ -529,20 +519,5 @@ plt.ylabel('Test Learning Loss')
 ax.set_yscale("log")
 plt.legend()
 plt.savefig('{}/{}_test_learning_loss_with_different_{}_{}.png'.format(folder_name, dataset_name, label, get_timestamp()))
-plt.clf()  # Clear the current figure for the next plot
-plt.close(fig)
-
-
-# first plot: energy loss across different lambda values
-fig, ax = add_hyperparameter_text(params)
-# Plot with evenly spaced points
-for i, norm_energy_loss_list in enumerate(all_norm_energy_loss_list):
-    label_prefix = f'{label}_{mp_layers[i]}'
-    ax.plot(norm_energy_loss_list, label=f'{label_prefix} normalized Energy', linestyle='-')
-plt.xlabel('Epoch')
-plt.ylabel('Normalized Energy')
-ax.set_yscale("log")
-plt.legend()
-plt.savefig('{}/{}_normalized_energy_loss_with_different_{}_{}.png'.format(folder_name, dataset_name, label, get_timestamp()))
 plt.clf()  # Clear the current figure for the next plot
 plt.close(fig)

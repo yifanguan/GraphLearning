@@ -3,8 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import SGConv
-# https://pytorch-geometric.readthedocs.io/en/2.5.2/tutorial/neighbor_loader.html
-# https://medium.com/stanford-cs224w/a-tour-of-pygs-data-loaders-9f2384e48f8f
+
 
 import torch
 import torch.nn.functional as F
@@ -92,48 +91,88 @@ def init_mup_readout(linear_like):
         torch.nn.init.normal_(B, 0.0, 1.0 / math.sqrt(fin))  # biases follow input/bias rule
 
 # ---------- model ----------
+# # class MuGNN(nn.Module):
+#     def __init__(self, input_dim, hidden_dim, output_dim, num_fc_layers, K=2, cached=False,
+#                  activation="gelu", residual_scale=None, bias=False):
+#         super().__init__()
+#         self.act = {"relu": F.relu, "gelu": F.gelu, "tanh": torch.tanh}.get(activation, F.relu)
+
+#         self.hidden_dim = hidden_dim
+#         # SGC: linear transform after K-step propagation
+#         self.sgc = SGConv(in_channels=input_dim, out_channels=hidden_dim, K=K, cached=cached, bias=bias)
+#         # SGConv contains a .lin (nn.Linear); we μP-init it as "input weights"
+#         init_mup_input(self.sgc)
+
+
+#         # self.norms = nn.ModuleList([
+#         #     nn.LayerNorm(hidden_dim) for _ in range(num_fc_layers)
+#         # ])
+#         # MLP hidden stack (no bias to keep it clean; add if you want)
+#         self.fcs = nn.ModuleList([
+#             nn.Linear(hidden_dim, hidden_dim, bias=bias) for _ in range(num_fc_layers)
+#         ])
+#         for lin in self.fcs:
+#             init_mup_hidden(lin)
+
+#         # Readout (final linear)
+#         self.readout = nn.Linear(hidden_dim, output_dim, bias=bias)
+#         # init_mup_readout(self.readout)
+#         nn.init.zeros_(self.readout.weight)
+
+#         # simple residual scaling like your draft
+#         self.scale = (1.0 / math.sqrt(num_fc_layers)) if (num_fc_layers > 0 and residual_scale is None) else (residual_scale or 1.0)
+
+#     def forward(self, x, edge_index):
+#         x = self.sgc(x, edge_index)
+#         for lin in self.fcs:
+#             x_in = x
+#             x = lin(self.act(x))
+#             x = x_in + self.scale * x
+#         # x = self.readout(x)
+#         # x = x / self.hidden_dim # output weight multiplier
+#         # return x
+#         return self.readout(x)
+
 class MuGNN(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, num_fc_layers, K=2, cached=False,
                  activation="gelu", residual_scale=None, bias=False):
         super().__init__()
-        self.act = {"relu": F.relu, "gelu": F.gelu, "tanh": torch.tanh}.get(activation, F.relu)
-
+        self.act = F.relu
         self.hidden_dim = hidden_dim
-        # SGC: linear transform after K-step propagation
         self.sgc = SGConv(in_channels=input_dim, out_channels=hidden_dim, K=K, cached=cached, bias=bias)
-        # SGConv contains a .lin (nn.Linear); we μP-init it as "input weights"
-        init_mup_input(self.sgc)
-
-
-        # self.norms = nn.ModuleList([
-        #     nn.LayerNorm(hidden_dim) for _ in range(num_fc_layers)
-        # ])
-        # MLP hidden stack (no bias to keep it clean; add if you want)
         self.fcs = nn.ModuleList([
             nn.Linear(hidden_dim, hidden_dim, bias=bias) for _ in range(num_fc_layers)
         ])
-        for lin in self.fcs:
-            init_mup_hidden(lin)
-
         # Readout (final linear)
         self.readout = nn.Linear(hidden_dim, output_dim, bias=bias)
-        # init_mup_readout(self.readout)
-        nn.init.zeros_(self.readout.weight)
 
         # simple residual scaling like your draft
-        self.multiplier = 3.0
-        self.scale = (self.multiplier / math.sqrt(num_fc_layers)) if (num_fc_layers > 0 and residual_scale is None) else (residual_scale or 1.0)
+        self.scale = 1.0 / math.sqrt(num_fc_layers*hidden_dim)
+
+        # weight init
+        set_variance = 1
+        ## input embedding
+        nn.init.normal_(self.sgc.lin.weight, mean=0.0, std=set_variance)
+        
+        ## mid layer
+        for i in range(len(self.fcs)):
+            nn.init.normal_(self.fcs[i].weight, mean=0.0, std=set_variance)
+            
+        ## output layer
+        #nn.init.normal_(self.readout.weight, mean=0.0, std=set_variance)
+        nn.init.zeros_(self.readout.weight)
+
 
     def forward(self, x, edge_index):
-        x = self.sgc(x, edge_index)
+        x = self.sgc(x, edge_index) #input embeding
         for lin in self.fcs:
+            # resnet
             x_in = x
             x = lin(self.act(x))
             x = x_in + self.scale * x
-        # x = self.readout(x)
-        # x = x / self.hidden_dim # output weight multiplier
-        # return x
-        return self.readout(x)
+        x = self.readout(x)
+        x = x/self.hidden_dim # tp setup
+        return x  #output embeding
 
 
 def mup_param_groups(model, base_lr: float, opt: str = "adam", weight_decay: float = 0.0):
@@ -242,8 +281,8 @@ def train_val_test_mask_helper(dataset_name, dataset):
 
 from utils.dataset import load_dataset, load_large_dataset
 from torch_geometric.utils import to_undirected, add_self_loops
-# dataset_name = 'ogbn-arxiv'
-dataset_name = 'ogbn-products'
+dataset_name = 'ogbn-arxiv'
+# dataset_name = 'ogbn-products'
 # dataset_name = 'cora'
 # dataset_name = 'citeseer'
 # dataset_name = 'wikics'
@@ -260,8 +299,7 @@ dataset.graph.edge_index = to_undirected(dataset.graph.edge_index)
 dataset.graph.edge_index, _ = add_self_loops(dataset.graph.edge_index, num_nodes=n)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 data = dataset.graph
-if dataset_name != 'ogbn-products':
-    data = data.to(device)
+data = data.to(device)
 
 train_val_test_mask_helper(dataset_name, dataset)
 
@@ -302,12 +340,14 @@ print(f"Using device: {device}")
 
 # === Hyperparameters ===
 # widths = [128, 256, 512, 1024]
-widths = [256]
-depths = [2,4,6,8,10,12,14,16]
+widths = [512]
+base_width = 256
+depths = [1,2,4,8,16]
 # depths = [4]
-lrs    = np.linspace(-8, 1, 10)   # add/remove as you like
+# lrs    = np.linspace(-7, 1, 10)   # add/remove as you like
+lrs = [0.1,0.5,1.0,2.0,4.0,8.0]
 
-num_epochs = 1000
+num_epochs = 5000
 log_every = 10
 
 # === Placeholder for results ===
@@ -316,228 +356,104 @@ results = {}
 # === Define loss function ===
 criterion = torch.nn.CrossEntropyLoss()
 
-from torch_geometric.loader import RandomNodeLoader
-import torch_geometric.transforms as T
-train_loader = None
-test_loader = None
-if dataset_name == 'ogbn-products':
-    # Set split indices to masks.
-    for split in ['train', 'val', 'test']:
-        mask = torch.zeros(data.x.shape[0], dtype=torch.bool)
-        mask[getattr(dataset, f'{split}_idx')] = True
-        data[f'{split}_mask'] = mask
-
-    train_loader = RandomNodeLoader(data, num_parts=10, shuffle=True,
-                                    num_workers=5)
-    # Increase the num_parts of the test loader if you cannot fit
-    # the full batch graph into your GPU:
-    test_loader = RandomNodeLoader(data, num_parts=1, num_workers=5)
-
-transform = T.Compose([T.ToDevice(device), T.ToSparseTensor()])
-# transform = T.Compose([T.ToDevice(device)])
-
 # === Training function ===
 def train(model, data, dataset, optimizer):
     model.train()
     optimizer.zero_grad()
-    if train_loader is None:
-        out = model(data.x, data.edge_index)
-        # loss = criterion(out[data.train_mask], data.y[data.train_mask])
-        loss = criterion(out[dataset.train_idx], data.y[dataset.train_idx])
-        loss.backward()
-        optimizer.step()
-        return loss.item()
-    else:
-        total_loss = 0.0
-        total_examples = 0
-        for data in train_loader:
-            data = transform(data)
-            out = model(data.x, data.adj_t)
-            if hasattr(data, 'n_id'):  # NeighborLoader / ClusterLoader
-                # Seed nodes are the first `batch.batch_size` entries
-                seed_nodes = data.n_id[:data.batch_size]
-                loss = criterion(out[:data.batch_size], data.y[seed_nodes])
-            else:  # RandomNodeLoader (no n_id)
-                loss = criterion(out[data.train_mask], data.y[data.train_mask])
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item() * data.num_nodes
-            total_examples += data.num_nodes
-        loss = total_loss / total_examples
-        return loss
-
+    out = model(data.x, data.edge_index)
+    # loss = criterion(out[data.train_mask], data.y[data.train_mask])
+    loss = criterion(out[dataset.train_idx], data.y[dataset.train_idx])
+    loss.backward()
+    optimizer.step()
+    return loss.item()
 
 # === Evaluation function ===
 @torch.no_grad()
 def evaluate(model, data, dataset):
     model.eval()
+    out = model(data.x, data.edge_index)
     result = {}
-    if test_loader is None:
-        out = model(data.x, data.edge_index)
-        result = {}
-        for split in ['train', 'val', 'test']:
-            mask = getattr(dataset, f"{split}_mask")
-            loss = criterion(out[mask], data.y[mask]).item()
-            pred = out[mask].argmax(dim=1)
-            acc = (pred == data.y[mask]).sum().item() / len(pred)
-            result[f"{split}_loss"] = loss
-            result[f"{split}_acc"] = acc
-    else:
-
-        y_true = {"train": [], "val": [], "test": []}
-        y_pred = {"train": [], "val": [], "test": []}
-        total_loss = {'train': 0, 'val': 0, 'test': 0}
-
-        for data in test_loader:
-            data = transform(data)
-            out = model(data.x, data.adj_t)
-            for split in ['train', 'val', 'test']:
-                mask = data[f'{split}_mask']
-                loss = criterion(out[mask], data.y[mask]).item()
-                total_loss[split] += loss * data.num_nodes
-                pred = out[mask].argmax(dim=1)
-                y_true[split].append(data.y[mask].cpu())
-                y_pred[split].append(pred.cpu())
-                # acc = (pred == data.y[mask]).sum().item() / len(pred)
-
-
-        for split in ['train', 'val', 'test']:
-            concat_y_true = torch.cat(y_true[split], dim=0)
-            result[f"{split}_acc"] = (concat_y_true == torch.cat(y_pred[split], dim=0)).sum().item() / len(concat_y_true)
-            result[f"{split}_loss"] = total_loss[split] / len(concat_y_true)
-
-        # train_acc = evaluator.eval({
-        #     'y_true': torch.cat(y_true['train'], dim=0),
-        #     'y_pred': torch.cat(y_pred['train'], dim=0),
-        # })['acc']
-
-        # valid_acc = evaluator.eval({
-        #     'y_true': torch.cat(y_true['valid'], dim=0),
-        #     'y_pred': torch.cat(y_pred['valid'], dim=0),
-        # })['acc']
-
-        # test_acc = evaluator.eval({
-        #     'y_true': torch.cat(y_true['test'], dim=0),
-        #     'y_pred': torch.cat(y_pred['test'], dim=0),
-        # })['acc']
-
-        # result[f"{split}_loss"] = loss
-        # result[f"{split}_acc"] = acc
-
+    for split in ['train', 'val', 'test']:
+        mask = getattr(dataset, f"{split}_mask")
+        loss = criterion(out[mask], data.y[mask]).item()
+        pred = out[mask].argmax(dim=1)
+        acc = (pred == data.y[mask]).sum().item() / len(pred)
+        result[f"{split}_loss"] = loss
+        result[f"{split}_acc"] = acc
     return result
-
-
-def test():
-    model.eval()
-
-    y_true = {'train': [], 'valid': [], 'test': []}
-    y_pred = {'train': [], 'valid': [], 'test': []}
-
-    pbar = tqdm(total=len(test_loader))
-    pbar.set_description(f'Evaluating epoch: {epoch:04d}')
-
-    for data in test_loader:
-        data = data.to(device)
-        out = model(data.x, data.edge_index, data.edge_attr)
-
-        for split in y_true.keys():
-            mask = data[f'{split}_mask']
-            y_true[split].append(data.y[mask].cpu())
-            y_pred[split].append(out[mask].cpu())
-
-        pbar.update(1)
-
-    pbar.close()
-
-    train_rocauc = evaluator.eval({
-        'y_true': torch.cat(y_true['train'], dim=0),
-        'y_pred': torch.cat(y_pred['train'], dim=0),
-    })['rocauc']
-
-    valid_rocauc = evaluator.eval({
-        'y_true': torch.cat(y_true['valid'], dim=0),
-        'y_pred': torch.cat(y_pred['valid'], dim=0),
-    })['rocauc']
-
-    test_rocauc = evaluator.eval({
-        'y_true': torch.cat(y_true['test'], dim=0),
-        'y_pred': torch.cat(y_pred['test'], dim=0),
-    })['rocauc']
-
-    return train_rocauc, valid_rocauc, test_rocauc
-
-
-
-
 
 # === Main experiment loop ===
 rows = []
 
-for width in widths:
-    for depth in depths:
-        for log2lr in lrs:
-            lr = 2**log2lr
-            key = f"width={width} depth={depth} lr={lr:g}"
-            print(f"\n=== Training {key} ===")
+# for width in widths:
+for depth in depths:
+    # for log2lr in lrs:
+        # lr = 2**log2lr
+    for base_lr in lrs:
+        key = f"width={base_width} depth={depth} lr={base_lr:g}"
+        print(f"\n=== Training {key} ===")
 
-            model = MuGNN(
-                input_dim=d, # dataset.num_node_features
-                hidden_dim=width,
-                output_dim=dataset.num_classes, # dataset.num_classes
-                num_fc_layers=depth).to(device) # depth = num_fc_layers + 1; actually
+        model = MuGNN(
+            input_dim=d, # dataset.num_node_features
+            hidden_dim=base_width,
+            output_dim=dataset.num_classes, # dataset.num_classes
+            num_fc_layers=depth, # depth = num_fc_layers + 1; actually, so we minus one here
+            K=2).to(device)
 
-            optimizer = make_mup_optimizer(model, base_lr=lr, opt="adam", weight_decay=0.0)
+        # optimizer = make_mup_optimizer(model, base_lr=lr, opt="adam", weight_decay=0.0)
+        # optimizer = torch.optim.Adam(model.parameters(), lr=lr*width, weight_decay=0.0)
+        optimizer = torch.optim.SGD(model.parameters(), lr=base_lr*base_width)
 
-            # Best trackers (value + epoch)
-            best = {
-                "train_loss": (math.inf, -1),
-                "val_loss":   (math.inf, -1),
-                "test_loss":  (math.inf, -1),
-                "train_acc":  (0.0, -1),
-                "val_acc":    (0.0, -1),
-                "test_acc":   (0.0, -1),
-            }
+        # Best trackers (value + epoch)
+        best = {
+            "train_loss": (math.inf, -1),
+            "val_loss":   (math.inf, -1),
+            "test_loss":  (math.inf, -1),
+            "train_acc":  (0.0, -1),
+            "val_acc":    (0.0, -1),
+            "test_acc":   (0.0, -1),
+        }
 
-            for epoch in range(1, num_epochs + 1):
-                train_loss = train(model, data, dataset, optimizer)
+        for epoch in range(1, num_epochs + 1):
+            train_loss = train(model, data, dataset, optimizer)
 
-                if epoch == 1 or epoch % log_every == 0 or epoch == num_epochs:
-                    m = evaluate(model, data, dataset) # result dict
+            if epoch == 1 or epoch % log_every == 0 or epoch == num_epochs:
+                m = evaluate(model, data, dataset) # result dict
 
-                    # update bests
-                    for k in ["train_loss", "val_loss", "test_loss"]:
-                        if m[k] < best[k][0]:
-                            best[k] = (m[k], epoch)
-                    for k in ["train_acc", "val_acc", "test_acc"]:
-                        if m[k] > best[k][0]:
-                            best[k] = (m[k], epoch)
+                # update bests
+                for k in ["train_loss", "val_loss", "test_loss"]:
+                    if m[k] < best[k][0]:
+                        best[k] = (m[k], epoch)
+                for k in ["train_acc", "val_acc", "test_acc"]:
+                    if m[k] > best[k][0]:
+                        best[k] = (m[k], epoch)
 
-                    print(
-                        f"Epoch {epoch:03d} | "
-                        f"Train: loss {m['train_loss']:.4f}, acc {m['train_acc']:.4f}, best {best['train_acc'][0]:.4f} (ep {best['train_acc'][1]}) | "
-                        f"Val: loss {m['val_loss']:.4f}, acc {m['val_acc']:.4f}, best {best['val_acc'][0]:.4f} (ep {best['val_acc'][1]}) | "
-                        f"Test: loss {m['test_loss']:.4f}, acc {m['test_acc']:.4f}, best {best['test_acc'][0]:.4f} (ep {best['test_acc'][1]})"
-                    )
+                print(
+                    f"Epoch {epoch:03d} | "
+                    f"Train: loss {m['train_loss']:.4f}, acc {m['train_acc']:.4f}, best {best['train_acc'][0]:.4f} (ep {best['train_acc'][1]}) | "
+                    f"Val: loss {m['val_loss']:.4f}, acc {m['val_acc']:.4f}, best {best['val_acc'][0]:.4f} (ep {best['val_acc'][1]}) | "
+                    f"Test: loss {m['test_loss']:.4f}, acc {m['test_acc']:.4f}, best {best['test_acc'][0]:.4f} (ep {best['test_acc'][1]})"
+                )
 
 
-            # store a row per run
-            rows.append({
-                "width": width,
-                "depth": depth,
-                "lr": lr,
-                "best_train_loss": best["train_loss"][0],
-                "best_train_loss_epoch": best["train_loss"][1],
-                "best_val_loss": best["val_loss"][0],
-                "best_val_loss_epoch": best["val_loss"][1],
-                "best_test_loss": best["test_loss"][0],
-                "best_test_loss_epoch": best["test_loss"][1],
-                "best_train_acc": best["train_acc"][0],
-                "best_train_acc_epoch": best["train_acc"][1],
-                "best_val_acc": best["val_acc"][0],
-                "best_val_acc_epoch": best["val_acc"][1],
-                "best_test_acc": best["test_acc"][0],
-                "best_test_acc_epoch": best["test_acc"][1],
-            })
+        # store a row per run
+        rows.append({
+            "width": base_width,
+            "depth": depth,
+            "lr": base_lr,
+            "best_train_loss": best["train_loss"][0],
+            "best_train_loss_epoch": best["train_loss"][1],
+            "best_val_loss": best["val_loss"][0],
+            "best_val_loss_epoch": best["val_loss"][1],
+            "best_test_loss": best["test_loss"][0],
+            "best_test_loss_epoch": best["test_loss"][1],
+            "best_train_acc": best["train_acc"][0],
+            "best_train_acc_epoch": best["train_acc"][1],
+            "best_val_acc": best["val_acc"][0],
+            "best_val_acc_epoch": best["val_acc"][1],
+            "best_test_acc": best["test_acc"][0],
+            "best_test_acc_epoch": best["test_acc"][1],
+        })
 
 
 
@@ -628,7 +544,7 @@ def plot_best_metric(df, metric, title, log_y=False):
         plt.legend(handles=width_handles, title="Width", loc="center right")
 
     plt.tight_layout()
-    plt.savefig(f'mup_products/{dataset_name}_{title}_{get_timestamp()}.png')
+    plt.savefig(f'mup_tintin_repro/{dataset_name}_{title}_{get_timestamp()}.png')
 
 
 plot_best_metric(df, "best_train_loss", "Best Train Loss vs LR", log_y=True)

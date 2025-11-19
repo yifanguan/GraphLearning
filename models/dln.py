@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from torch_geometric.utils import to_dense_adj
 from torch_geometric.nn import BatchNorm
 from torch_scatter import scatter_add
+from torch_geometric.nn import SGConv
 # from torch_geometric.nn import global_mean_pool, BatchNorm, global_add_pool
 
 # from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
@@ -671,15 +672,83 @@ class iGNN_V2(nn.Module):
 #         return self.output_layer(x), x, norms_per_layer # h is the embedding
 
 
-class iGNN_tune_version(nn.Module):
+from typing import Optional
+
+from torch import Tensor
+
+from torch_geometric.nn.conv import MessagePassing
+from torch_geometric.nn.conv.gcn_conv import gcn_norm
+from torch_geometric.nn.dense.linear import Linear
+from torch_geometric.typing import Adj, OptTensor, SparseTensor
+from torch_geometric.utils import spmm
+
+class Simple_SGConv(MessagePassing):
+    _cached_x: Optional[Tensor]
+
+    def __init__(self, in_channels: int, out_channels: int, K: int = 1,
+                 cached: bool = False, add_self_loops: bool = True,
+                 bias: bool = True, **kwargs):
+        kwargs.setdefault('aggr', 'add')
+        super().__init__(**kwargs)
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.K = K
+        self.cached = cached
+        self.add_self_loops = add_self_loops
+
+        self._cached_x = None
+
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        super().reset_parameters()
+        self._cached_x = None
+
+    def forward(self, x: Tensor, edge_index: Adj,
+                edge_weight: OptTensor = None) -> Tensor:
+
+        cache = self._cached_x
+        if cache is None:
+            if isinstance(edge_index, Tensor):
+                edge_index, edge_weight = gcn_norm(  # yapf: disable
+                    edge_index, edge_weight, x.size(self.node_dim), False,
+                    self.add_self_loops, self.flow, dtype=x.dtype)
+            elif isinstance(edge_index, SparseTensor):
+                edge_index = gcn_norm(  # yapf: disable
+                    edge_index, edge_weight, x.size(self.node_dim), False,
+                    self.add_self_loops, self.flow, dtype=x.dtype)
+
+            for k in range(self.K):
+                # propagate_type: (x: Tensor, edge_weight: OptTensor)
+                x = self.propagate(edge_index, x=x, edge_weight=edge_weight)
+                if self.cached:
+                    self._cached_x = x
+        else:
+            x = cache.detach()
+
+        return x
+
+    def message(self, x_j: Tensor, edge_weight: Tensor) -> Tensor:
+        return edge_weight.view(-1, 1) * x_j
+
+    def message_and_aggregate(self, adj_t: Adj, x: Tensor) -> Tensor:
+        return spmm(adj_t, x, reduce=self.aggr)
+
+    def __repr__(self) -> str:
+        return (f'{self.__class__.__name__}({self.in_channels}, '
+                f'{self.out_channels}, K={self.K})')
+
+
+
+class iGNN_SGConv(nn.Module):
     """
-    A Graph Neural Network model.
-    Train with energy as part of the loss.
+    A Graph Neural Network model using SGConv as its message passing layer
+    for simple mp aggregation without weights.
+    Followed by activation and output layer for experiments.
 
     Args:
-        num_mp_layers: The number of injective layers to stack.
+        num_mp_layers: The number of SGConv layers.
         num_fl_layers: number of feature learning layers to stack.
-        eps (float): The epsilon value to use for all layers.
         act (nn.Module, optional): The activation function to apply between
                                          layers (e.g., nn.ReLU()). If None, no activation
                                          is applied. Defaults to None.
@@ -694,36 +763,42 @@ class iGNN_tune_version(nn.Module):
                 act=F.gelu,
                 freeze=True,
                 # dropout: float = 0,
-                alpha=1.0,
-                skip_connection = False,
-                simple=True
+                # alpha=1.0,
+                skip_connection = False
+                # simple=True
                 ):
         super().__init__()
         self.act = act
         # self.dropout = dropout
         self.skip_connection = skip_connection
-        self.alpha = alpha
-        self.simple = simple
+        # self.alpha = alpha
+        # self.simple = simple
 
-        self.input_layer = nn.Linear(in_dim, mp_width)
+        # self.input_layer = nn.Linear(in_dim, mp_width)
 
         # Message passing layers
-        self.mp_layers = nn.ModuleList([
-            iMP(in_dim=mp_width, out_dim=mp_width, act=act, freeze=freeze, alpha=alpha, skip_connection=skip_connection, simple=simple)
-            for i in range(num_mp_layers)
-        ])
+        self.mp_layers = SGConv(in_channels=in_dim, out_channels=mp_width, K=num_mp_layers)
+        # self.mp_layers = nn.ModuleList([
+        #     iMP(in_dim=mp_width, out_dim=mp_width, act=act, freeze=freeze, alpha=alpha, skip_connection=skip_connection, simple=simple)
+        #     for i in range(num_mp_layers)
+        # ])
 
         # Fully connected layers
+        # self.fc_layers = nn.ModuleList(
+        #     [nn.Linear(mp_width if self.mp_layers else in_dim, fl_width)] +
+        #     [nn.Linear(fl_width, fl_width) for _ in range(num_fl_layers - 1)]
+        # ) if num_fl_layers > 0 else None
+        # assert num_fl_layers == 0
         self.fc_layers = nn.ModuleList(
             [nn.Linear(mp_width if self.mp_layers else in_dim, fl_width)] +
             [nn.Linear(fl_width, fl_width) for _ in range(num_fl_layers - 1)]
         ) if num_fl_layers > 0 else None
 
         # Per-layer injection projections from MP output to FC width
-        self.injection_projs = nn.ModuleList([
-            nn.Linear(mp_width if self.mp_layers else in_dim, fl_width)
-            for _ in range(num_fl_layers)
-        ]) if num_fl_layers > 0 else None
+        # self.injection_projs = nn.ModuleList([
+        #     nn.Linear(mp_width if self.mp_layers else in_dim, fl_width)
+        #     for _ in range(num_fl_layers)
+        # ]) if num_fl_layers > 0 else None
 
         # Output layer
         out_input_dim = (
@@ -742,28 +817,134 @@ class iGNN_tune_version(nn.Module):
         """
         x, edge_index = data.x, data.edge_index
 
-        norms_per_layer = []
-        norms_per_layer.append(get_norm(x))
-        # print("Norm before input:", get_norm(x))
-        if not self.simple:
-            x = self.input_layer(x)
-            norms_per_layer.append(get_norm(x))
-            # print("Norm after input:", h.norm(dim=1).mean().item())
-
-        for layer in self.mp_layers:
-            x = layer(x, edge_index)
-            norms_per_layer.append(get_norm(x))
-            # print("Norm after each mp layer:", h.norm(dim=1).mean().item())
+        x = self.mp_layers(x, edge_index)
 
         if self.fc_layers:
-            x_inject = x  # Save for injection
-            for layer, proj in zip(self.fc_layers, self.injection_projs):
-                injected = proj(x_inject)
-                x = layer(self.act(x)) + injected
-                norms_per_layer.append(get_norm(x))
+            for layer in self.fc_layers:
+                x = layer(self.act(x))
+
+        x = self.act(x)
+# sgc , linear, act -> loss
+        return self.output_layer(x), x
+
+        # norms_per_layer = []
+        # norms_per_layer.append(get_norm(x))
+        # print("Norm before input:", get_norm(x))
+        # if not self.simple:
+        #     x = self.input_layer(x)
+            # norms_per_layer.append(get_norm(x))
+            # print("Norm after input:", h.norm(dim=1).mean().item())
+
+        # for layer in self.mp_layers:
+        #     x = layer(x, edge_index)
+            # norms_per_layer.append(get_norm(x))
+            # print("Norm after each mp layer:", h.norm(dim=1).mean().item())
+
+        # if self.fc_layers:
+        #     x_inject = x  # Save for injection
+        #     for layer, proj in zip(self.fc_layers, self.injection_projs):
+        #         injected = proj(x_inject)
+        #         x = layer(self.act(x)) + injected
+        #         norms_per_layer.append(get_norm(x))
                 # x = F.dropout(x, p=self.dropout, training=self.training)
 
-        return self.output_layer(x), x, norms_per_layer # h is the embedding
+        # return self.output_layer(x), x, norms_per_layer # h is the embedding
+
+
+
+# class iGNN_tune_version(nn.Module):
+#     """
+#     A Graph Neural Network model.
+#     Train with energy as part of the loss.
+
+#     Args:
+#         num_mp_layers: The number of injective layers to stack.
+#         num_fl_layers: number of feature learning layers to stack.
+#         eps (float): The epsilon value to use for all layers.
+#         act (nn.Module, optional): The activation function to apply between
+#                                          layers (e.g., nn.ReLU()). If None, no activation
+#                                          is applied. Defaults to None.
+#     """
+#     def __init__(self,
+#                 in_dim: int,
+#                 num_mp_layers: int,
+#                 mp_width: int,
+#                 num_fl_layers: int,
+#                 fl_width: int,
+#                 out_dim:int,
+#                 act=F.gelu,
+#                 freeze=True,
+#                 # dropout: float = 0,
+#                 alpha=1.0,
+#                 skip_connection = False,
+#                 simple=True
+#                 ):
+#         super().__init__()
+#         self.act = act
+#         # self.dropout = dropout
+#         self.skip_connection = skip_connection
+#         self.alpha = alpha
+#         self.simple = simple
+
+#         self.input_layer = nn.Linear(in_dim, mp_width)
+
+#         # Message passing layers
+#         self.mp_layers = nn.ModuleList([
+#             iMP(in_dim=mp_width, out_dim=mp_width, act=act, freeze=freeze, alpha=alpha, skip_connection=skip_connection, simple=simple)
+#             for i in range(num_mp_layers)
+#         ])
+
+#         # Fully connected layers
+#         self.fc_layers = nn.ModuleList(
+#             [nn.Linear(mp_width if self.mp_layers else in_dim, fl_width)] +
+#             [nn.Linear(fl_width, fl_width) for _ in range(num_fl_layers - 1)]
+#         ) if num_fl_layers > 0 else None
+
+#         # Per-layer injection projections from MP output to FC width
+#         self.injection_projs = nn.ModuleList([
+#             nn.Linear(mp_width if self.mp_layers else in_dim, fl_width)
+#             for _ in range(num_fl_layers)
+#         ]) if num_fl_layers > 0 else None
+
+#         # Output layer
+#         out_input_dim = (
+#             fl_width if self.fc_layers else
+#             mp_width if self.mp_layers else
+#             in_dim
+#         )
+#         self.output_layer = nn.Linear(out_input_dim, out_dim)
+
+
+#     def forward(self, data):
+#         """
+#         Forward pass through the stacked GNN layers.
+#         Returns:
+#             torch.Tensor: Node features after passing through all layers.
+#         """
+#         x, edge_index = data.x, data.edge_index
+
+#         norms_per_layer = []
+#         norms_per_layer.append(get_norm(x))
+#         # print("Norm before input:", get_norm(x))
+#         if not self.simple:
+#             x = self.input_layer(x)
+#             norms_per_layer.append(get_norm(x))
+#             # print("Norm after input:", h.norm(dim=1).mean().item())
+
+#         for layer in self.mp_layers:
+#             x = layer(x, edge_index)
+#             norms_per_layer.append(get_norm(x))
+#             # print("Norm after each mp layer:", h.norm(dim=1).mean().item())
+
+#         if self.fc_layers:
+#             x_inject = x  # Save for injection
+#             for layer, proj in zip(self.fc_layers, self.injection_projs):
+#                 injected = proj(x_inject)
+#                 x = layer(self.act(x)) + injected
+#                 norms_per_layer.append(get_norm(x))
+#                 # x = F.dropout(x, p=self.dropout, training=self.training)
+
+#         return self.output_layer(x), x, norms_per_layer # h is the embedding
 
 
 

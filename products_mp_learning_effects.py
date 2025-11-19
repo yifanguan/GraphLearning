@@ -64,12 +64,13 @@ def train(model, data, train_idx, optimizer, criterion, energy_lambda, energy_th
     model.train()
     out, embedding = model(data)
     loss = criterion(out[train_idx], data.y[train_idx])
-    with torch.no_grad():
-        energy_loss = dirichlet_energy(embedding, data.edge_index)
-        norm_energy_loss = normalized_dirichlet_energy(embedding, data.edge_index, energy_loss)
+    # with torch.no_grad():
+        # energy_loss = dirichlet_energy(embedding, data.edge_index)
+        # norm_energy_loss = normalized_dirichlet_energy(embedding, data.edge_index, energy_loss)
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
+    norm_energy_loss = torch.tensor(0)
     return loss.item(), norm_energy_loss
 
 
@@ -109,7 +110,7 @@ def run(dataset_name, num_mp_layers, mp_hidden_dim, num_fl_layers, fl_hidden_dim
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     display_step = 10
-    dataset = load_dataset(data_dir='data', dataset_name=dataset_name)
+    dataset = load_large_dataset(data_dir='data', name=dataset_name)
 
     d = dataset.graph.x.shape[1]
     c = dataset.label.max().item() + 1
@@ -338,20 +339,20 @@ def main_experiment(dataset_name, num_mp_layers, mp_hidden_dim=3000, num_fl_laye
 # gc.collect()                   # force Python to collect garbage
 # torch.cuda.ipc_collect()       # clean up CUDA inter-process handles (optional)1
 
-dataset_name = 'amazon-computers'
+dataset_name = 'ogbn-products'
 # Create folder for results
 folder = Path(f"result_{dataset_name}")
 folder.mkdir(parents=True, exist_ok=True)
 folder_name = folder.name
 
 num_mp_layers = 2
-mp_hidden_dim = fl_hidden_dim = 512
+mp_hidden_dim = fl_hidden_dim = 100
 num_fl_layers = 0
 optimizer_lr = 0.01
 freeze = False
 skip_connection = False
-mp_layers = [0,1,2,3,4,5]
-total_epoch=1500
+mp_layers = [0,1,2,3,4]
+total_epoch=500
 all_train_acc = []
 all_valid_acc = []
 all_test_acc = []

@@ -27,7 +27,7 @@ from utils.dataset import load_dataset, load_large_dataset
 from utils.data_split_util import rand_train_test_idx
 from utils.timestamp import get_timestamp
 from torch_geometric.utils import to_undirected, add_self_loops
-from utils.over_smoothing_measure import dirichlet_energy, normalized_dirichlet_energy
+# from utils.over_smoothing_measure import dirichlet_energy, normalized_dirichlet_energy
 import gc
 
 # TODO: improve result folder structure
@@ -64,13 +64,10 @@ def train(model, data, train_idx, optimizer, criterion, energy_lambda, energy_th
     model.train()
     out, embedding = model(data)
     loss = criterion(out[train_idx], data.y[train_idx])
-    with torch.no_grad():
-        energy_loss = dirichlet_energy(embedding, data.edge_index)
-        norm_energy_loss = normalized_dirichlet_energy(embedding, data.edge_index, energy_loss)
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
-    return loss.item(), norm_energy_loss
+    return loss.item()
 
 
 @torch.no_grad()
@@ -151,10 +148,6 @@ def run(dataset_name, num_mp_layers, mp_hidden_dim, num_fl_layers, fl_hidden_dim
         skip_connection=skip_connection
     ).to(device)
 
-    # total_params = sum(p.numel() for p in model.parameters())
-    # print(f"Total parameters: {total_params}")
-
-
     optimizer = torch.optim.AdamW(model.parameters(), lr=optimizer_lr)
     criterion = torch.nn.CrossEntropyLoss()
     if loss_func == 'CrossEntropyLoss':
@@ -180,10 +173,9 @@ def run(dataset_name, num_mp_layers, mp_hidden_dim, num_fl_layers, fl_hidden_dim
     train_accuracy_list = []
     valid_accuracy_list = []
     test_accuracy_list = []
-    norm_energy_loss_list = []
 
     for epoch in tqdm(range(1,total_epoch)):
-        train_learning_loss, norm_energy_loss = train(model,dataset.graph,train_idx,optimizer,criterion, energy_lambda, energy_threshold)
+        train_learning_loss = train(model,dataset.graph,train_idx,optimizer,criterion, energy_lambda, energy_threshold)
         train_acc, valid_acc, test_acc, valid_learning_loss, test_learning_loss  = evaluate(model, criterion, dataset.graph, train_idx, valid_idx, test_idx, energy_lambda)
 
         train_accuracy_list.append(train_acc)
@@ -193,7 +185,7 @@ def run(dataset_name, num_mp_layers, mp_hidden_dim, num_fl_layers, fl_hidden_dim
         # valid_loss_list.append(valid_loss)
         # test_loss_list.append(test_loss)
         # energy_loss_list.append(energy_loss)
-        norm_energy_loss_list.append(norm_energy_loss)
+        # norm_energy_loss_list.append(norm_energy_loss)
         train_loss_list.append(train_learning_loss)
         valid_loss_list.append(valid_learning_loss)
         test_loss_list.append(test_learning_loss)
@@ -278,17 +270,17 @@ def run(dataset_name, num_mp_layers, mp_hidden_dim, num_fl_layers, fl_hidden_dim
     # plt.clf()  # Clear the current figure for the next plot
     plt.close()
     # Plotting the energy in one figure
-    fig, ax = add_hyperparameter_text(params)
-    # plt.figure(figsize=(10, 5))
-    ax.plot(norm_energy_loss_list, label='Normalized Dirichlet Energy', color='blue')
-    plt.xlabel('Epochs')
-    plt.ylabel('Energy (log scale)')
-    plt.title('Energy vs Epochs')
-    ax.set_yscale("log")
-    plt.legend()
-    plt.savefig('{}/energy_{}_{}.png'.format(folder_name, dataset_name, timestamp))
+    # fig, ax = add_hyperparameter_text(params)
+    # # plt.figure(figsize=(10, 5))
+    # ax.plot(norm_energy_loss_list, label='Normalized Dirichlet Energy', color='blue')
+    # plt.xlabel('Epochs')
+    # plt.ylabel('Energy (log scale)')
+    # plt.title('Energy vs Epochs')
+    # ax.set_yscale("log")
+    # plt.legend()
+    # plt.savefig('{}/energy_{}_{}.png'.format(folder_name, dataset_name, timestamp))
     # # plt.clf()  # Clear the current figure for the next plot
-    plt.close()
+    # plt.close()
 
     # if save_model:
     #     torch.save(model.state_dict(), F'saved_models/model_weights_{dataset_name}_{num_mp_layers}_{mp_hidden_dim}_{num_fl_layers}_{fl_hidden_dim}_{dropout}.pth')
@@ -297,7 +289,7 @@ def run(dataset_name, num_mp_layers, mp_hidden_dim, num_fl_layers, fl_hidden_dim
     #         train_loss_list, valid_loss_list, test_loss_list, train_learning_loss_list, \
     #         valid_learning_loss_list, test_learning_loss_list, norms_list, norm_energy_loss_list
     return best_val, best_test, model, train_accuracy_list, valid_accuracy_list, test_accuracy_list, train_loss_list, \
-            valid_loss_list, test_loss_list, norm_energy_loss_list
+            valid_loss_list, test_loss_list
 
 
 
@@ -317,14 +309,14 @@ def main_experiment(dataset_name, num_mp_layers, mp_hidden_dim=3000, num_fl_laye
     #     best_tests[i] = best_test
     # num_mp_layers = 6
     best_val, best_test, _, train_accuracy_list, valid_accuracy_list, test_accuracy_list, \
-    train_learning_loss_list, valid_learning_loss_list, test_learning_loss_list, norm_energy_loss_list = \
+    train_learning_loss_list, valid_learning_loss_list, test_learning_loss_list = \
             run(dataset_name, num_mp_layers, mp_hidden_dim, num_fl_layers, fl_hidden_dim, num_mp_smoothing_layers,
                 optimizer_lr, loss_func, total_epoch,
                 freeze=freeze, save_model=False, skip_connection=skip_connection, dropout=0,
                 folder_name_suffix=folder_name_suffix, energy_lambda=energy_lambda, energy_threshold=energy_threshold)
     
     return best_val, best_test, train_accuracy_list, valid_accuracy_list, test_accuracy_list, \
-            train_learning_loss_list, valid_learning_loss_list, test_learning_loss_list, norm_energy_loss_list
+            train_learning_loss_list, valid_learning_loss_list, test_learning_loss_list
 
 
 # main_experiment(dataset_name='cora',
@@ -338,7 +330,7 @@ def main_experiment(dataset_name, num_mp_layers, mp_hidden_dim=3000, num_fl_laye
 # gc.collect()                   # force Python to collect garbage
 # torch.cuda.ipc_collect()       # clean up CUDA inter-process handles (optional)1
 
-dataset_name = 'amazon-computers'
+dataset_name = 'cora'
 # Create folder for results
 folder = Path(f"result_{dataset_name}")
 folder.mkdir(parents=True, exist_ok=True)
@@ -351,7 +343,7 @@ optimizer_lr = 0.01
 freeze = False
 skip_connection = False
 mp_layers = [0,1,2,3,4,5]
-total_epoch=1500
+total_epoch=800
 all_train_acc = []
 all_valid_acc = []
 all_test_acc = []
@@ -360,32 +352,46 @@ best_tests = []
 all_train_learning_loss = []
 all_valid_learning_loss = []
 all_test_learning_loss = []
-all_norm_energy_loss_list = []
+num_runs = 10
+best_valid_accuracy_runs = np.zeros((num_runs, len(mp_layers)))
+best_test_accuracy_runs = np.zeros((num_runs, len(mp_layers)))
 
-for num_mp_layers in mp_layers:
-    best_val, best_test, train_accuracy_list, valid_accuracy_list, test_accuracy_list, \
-    train_learning_loss_list, valid_learning_loss_list, test_learning_loss_list, norm_energy_loss_list = \
-    main_experiment(dataset_name=dataset_name,
-                    num_mp_layers=num_mp_layers,
-                    mp_hidden_dim=mp_hidden_dim,
-                    num_fl_layers=num_fl_layers,
-                    fl_hidden_dim=fl_hidden_dim,
-                    optimizer_lr=optimizer_lr,
-                    loss_func='CrossEntropyLoss', total_epoch=total_epoch,
-                    freeze=freeze, skip_connection=skip_connection, folder_name_suffix="", energy_lambda=0, energy_threshold=-1) #0.00001
-    all_train_acc.append(train_accuracy_list)
-    all_valid_acc.append(valid_accuracy_list)
-    all_test_acc.append(test_accuracy_list)
-    best_tests.append(best_test)
-    best_vals.append(best_val)
-    all_train_learning_loss.append(train_learning_loss_list)
-    all_valid_learning_loss.append(valid_learning_loss_list)
-    all_test_learning_loss.append(test_learning_loss_list)
-    all_norm_energy_loss_list.append(norm_energy_loss_list)
+for j, num_mp_layers in enumerate(mp_layers):
+    for i in range(num_runs):
+        best_val, best_test, train_accuracy_list, valid_accuracy_list, test_accuracy_list, \
+        train_learning_loss_list, valid_learning_loss_list, test_learning_loss_list = \
+        main_experiment(dataset_name=dataset_name,
+                        num_mp_layers=num_mp_layers,
+                        mp_hidden_dim=mp_hidden_dim,
+                        num_fl_layers=num_fl_layers,
+                        fl_hidden_dim=fl_hidden_dim,
+                        optimizer_lr=optimizer_lr,
+                        loss_func='CrossEntropyLoss', total_epoch=total_epoch,
+                        freeze=freeze, skip_connection=skip_connection, folder_name_suffix="", energy_lambda=0, energy_threshold=-1) #0.00001
+        all_train_acc.append(train_accuracy_list)
+        all_valid_acc.append(valid_accuracy_list)
+        all_test_acc.append(test_accuracy_list)
+        best_tests.append(best_test)
+        best_vals.append(best_val)
+        all_train_learning_loss.append(train_learning_loss_list)
+        all_valid_learning_loss.append(valid_learning_loss_list)
+        all_test_learning_loss.append(test_learning_loss_list)
+
+        best_valid_accuracy_runs[i][j] = best_val
+        best_test_accuracy_runs[i][j] = best_test
+
+
     # ---- Clean up GPU memory ----
     torch.cuda.empty_cache()       # release cached blocks
     gc.collect()                   # force Python to collect garbage
     torch.cuda.ipc_collect()       # clean up CUDA inter-process handles (optional)1
+
+
+val_mean_acc = np.mean(best_valid_accuracy_runs, axis=0)
+test_mean_acc = np.mean(best_test_accuracy_runs, axis=0)
+val_std_acc = np.std(best_valid_accuracy_runs, axis=0)
+test_std_acc = np.std(best_test_accuracy_runs, axis=0)
+
 
 
 # import optuna
@@ -435,114 +441,124 @@ params = {
 
 label = 'num_mp_layers'
 
-# fifth plot: test accuracy across different lambda
+# plot multi-run 
 fig, ax = add_hyperparameter_text(params)
-# Plot with evenly spaced points
-for i, test_accuracy_list in enumerate(all_test_acc):
-    label_prefix = f'{label}_{mp_layers[i]}'
-    ax.plot(test_accuracy_list, label=f'{label_prefix} test accuracy', linestyle='-')
-plt.xlabel('Epoch')
-plt.ylabel('Test Accuracy')
-plt.legend()
-plt.savefig('{}/{}_test_accuracy_with_different_{}_{}.png'.format(folder_name, dataset_name, label, get_timestamp()))
-plt.clf()  # Clear the current figure for the next plot
-plt.close(fig)
+# ax.plot(candidates, best_vals, label='Best Valid Accuracy', color='blue')
+# ax.plot(candidates, best_tests, label='Best Test Accuracy', color='red')
 
-# sixth plot: train accuracy across different lambda
-fig, ax = add_hyperparameter_text(params)
-# Plot with evenly spaced points
-for i, train_accuracy_list in enumerate(all_train_acc):
-    label_prefix = f'{label}_{mp_layers[i]}'
-    ax.plot(train_accuracy_list, label=f'{label_prefix} train accuracy', linestyle='-')
-plt.xlabel('Epoch')
-plt.ylabel('Train Accuracy')
-plt.legend()
-plt.savefig('{}/{}_train_accuracy_with_different_{}_{}.png'.format(folder_name, dataset_name, label, get_timestamp()))
-plt.clf()  # Clear the current figure for the next plot
-plt.close(fig)
+# Plot valid
+ax.plot(mp_layers, val_mean_acc, label='Best Valid Accuracy', color='blue')              # Solid mean
+ax.plot(mp_layers, val_mean_acc + val_std_acc, linestyle='--', color='blue', alpha=0.3)  # Mean + std
+ax.plot(mp_layers, val_mean_acc - val_std_acc, linestyle='--', color='blue', alpha=0.3)  # Mean - std
 
-# seventh plot: valid accuracy across different lambda
-fig, ax = add_hyperparameter_text(params)
-# Plot with evenly spaced points
-for i, valid_accuracy_list in enumerate(all_valid_acc):
-    label_prefix = f'{label}_{mp_layers[i]}'
-    ax.plot(valid_accuracy_list, label=f'{label_prefix} valid accuracy', linestyle='-')
-plt.xlabel('Epoch')
-plt.ylabel('Valid Accuracy')
-plt.legend()
-plt.savefig('{}/{}_valid_accuracy_with_different_{}_{}.png'.format(folder_name, dataset_name, num_mp_layers, get_timestamp()))
-plt.clf()  # Clear the current figure for the next plot
-plt.close(fig)
+# Plot test
+ax.plot(mp_layers, test_mean_acc, label='Best Test Accuracy', color='red')                # Solid mean
+ax.plot(mp_layers, test_mean_acc + test_std_acc, linestyle='--', color='red', alpha=0.3)  # Mean + std
+ax.plot(mp_layers, test_mean_acc - test_std_acc, linestyle='--', color='red', alpha=0.3)  # Mean - std
 
-# eighth plot: best test, best val across diffferent lambda
-fig, ax = add_hyperparameter_text(params)
-# Plot with evenly spaced points
-ax.plot(range(len(mp_layers)), best_vals, label=f'Best valid accuracy', linestyle='-', marker='o')
-ax.plot(range(len(mp_layers)), best_tests, label=f'Best test accuracy', linestyle='-', marker='o')
-
-ax.set_xticks(range(len(mp_layers)))
-ax.set_xticklabels(mp_layers)
-
-plt.xlabel('MP')
+plt.xlabel('mp depth')
 plt.ylabel('Accuracy')
+plt.title('accuracy vs mp depth')
 plt.legend()
-plt.savefig('{}/{}_best_accuracy_with_different_{}_{}.png'.format(folder_name, dataset_name, label, get_timestamp()))
-plt.clf()  # Clear the current figure for the next plot
-plt.close(fig)
-
-# nineth plot: train learning loss across different lambda
-fig, ax = add_hyperparameter_text(params)
-# Plot with evenly spaced points
-for i, train_learning_loss_list in enumerate(all_train_learning_loss):
-    label_prefix = f'{label}_{mp_layers[i]}'
-    ax.plot(train_learning_loss_list, label=f'{label_prefix} train learning loss', linestyle='-')
-plt.xlabel('Epoch')
-plt.ylabel('Train Learning Loss')
-ax.set_yscale("log")
-plt.legend()
-plt.savefig('{}/{}_train_learning_loss_with_different_{}_{}.png'.format(folder_name, dataset_name, label, get_timestamp()))
-plt.clf()  # Clear the current figure for the next plot
-plt.close(fig)
-
-# tenth plot: train learning loss across different lambda
-fig, ax = add_hyperparameter_text(params)
-# Plot with evenly spaced points
-for i, valid_learning_loss_list in enumerate(all_valid_learning_loss):
-    label_prefix = f'{label}_{mp_layers[i]}'
-    ax.plot(valid_learning_loss_list, label=f'{label_prefix} valid learning loss', linestyle='-')
-plt.xlabel('Epoch')
-plt.ylabel('Valid Learning Loss')
-ax.set_yscale("log")
-plt.legend()
-plt.savefig('{}/{}_valid_learning_loss_with_different_{}_{}.png'.format(folder_name, dataset_name, label, get_timestamp()))
-plt.clf()  # Clear the current figure for the next plot
-plt.close(fig)
-
-# nineth plot: train learning loss across different lambda
-fig, ax = add_hyperparameter_text(params)
-# Plot with evenly spaced points
-for i, test_learning_loss_list in enumerate(all_test_learning_loss):
-    label_prefix = f'{label}_{mp_layers[i]}'
-    ax.plot(test_learning_loss_list, label=f'{label_prefix} test learning loss', linestyle='-')
-plt.xlabel('Epoch')
-plt.ylabel('Test Learning Loss')
-ax.set_yscale("log")
-plt.legend()
-plt.savefig('{}/{}_test_learning_loss_with_different_{}_{}.png'.format(folder_name, dataset_name, label, get_timestamp()))
+plt.savefig('{}/multi_run_mp_depth_accuracy_{}.png'.format(folder_name, get_timestamp()))
 plt.clf()  # Clear the current figure for the next plot
 plt.close(fig)
 
 
-# first plot: energy loss across different lambda values
-fig, ax = add_hyperparameter_text(params)
-# Plot with evenly spaced points
-for i, norm_energy_loss_list in enumerate(all_norm_energy_loss_list):
-    label_prefix = f'{label}_{mp_layers[i]}'
-    ax.plot(norm_energy_loss_list, label=f'{label_prefix} normalized Energy', linestyle='-')
-plt.xlabel('Epoch')
-plt.ylabel('Normalized Energy')
-ax.set_yscale("log")
-plt.legend()
-plt.savefig('{}/{}_normalized_energy_loss_with_different_{}_{}.png'.format(folder_name, dataset_name, label, get_timestamp()))
-plt.clf()  # Clear the current figure for the next plot
-plt.close(fig)
+
+# # fifth plot: test accuracy across different lambda
+# fig, ax = add_hyperparameter_text(params)
+# # Plot with evenly spaced points
+# for i, test_accuracy_list in enumerate(all_test_acc):
+#     label_prefix = f'{label}_{mp_layers[i]}'
+#     ax.plot(test_accuracy_list, label=f'{label_prefix} test accuracy', linestyle='-')
+# plt.xlabel('Epoch')
+# plt.ylabel('Test Accuracy')
+# plt.legend()
+# plt.savefig('{}/{}_test_accuracy_with_different_{}_{}.png'.format(folder_name, dataset_name, label, get_timestamp()))
+# plt.clf()  # Clear the current figure for the next plot
+# plt.close(fig)
+
+# # sixth plot: train accuracy across different lambda
+# fig, ax = add_hyperparameter_text(params)
+# # Plot with evenly spaced points
+# for i, train_accuracy_list in enumerate(all_train_acc):
+#     label_prefix = f'{label}_{mp_layers[i]}'
+#     ax.plot(train_accuracy_list, label=f'{label_prefix} train accuracy', linestyle='-')
+# plt.xlabel('Epoch')
+# plt.ylabel('Train Accuracy')
+# plt.legend()
+# plt.savefig('{}/{}_train_accuracy_with_different_{}_{}.png'.format(folder_name, dataset_name, label, get_timestamp()))
+# plt.clf()  # Clear the current figure for the next plot
+# plt.close(fig)
+
+# # seventh plot: valid accuracy across different lambda
+# fig, ax = add_hyperparameter_text(params)
+# # Plot with evenly spaced points
+# for i, valid_accuracy_list in enumerate(all_valid_acc):
+#     label_prefix = f'{label}_{mp_layers[i]}'
+#     ax.plot(valid_accuracy_list, label=f'{label_prefix} valid accuracy', linestyle='-')
+# plt.xlabel('Epoch')
+# plt.ylabel('Valid Accuracy')
+# plt.legend()
+# plt.savefig('{}/{}_valid_accuracy_with_different_{}_{}.png'.format(folder_name, dataset_name, num_mp_layers, get_timestamp()))
+# plt.clf()  # Clear the current figure for the next plot
+# plt.close(fig)
+
+# # eighth plot: best test, best val across diffferent lambda
+# fig, ax = add_hyperparameter_text(params)
+# # Plot with evenly spaced points
+# ax.plot(range(len(mp_layers)), best_vals, label=f'Best valid accuracy', linestyle='-', marker='o')
+# ax.plot(range(len(mp_layers)), best_tests, label=f'Best test accuracy', linestyle='-', marker='o')
+
+# ax.set_xticks(range(len(mp_layers)))
+# ax.set_xticklabels(mp_layers)
+
+# plt.xlabel('MP')
+# plt.ylabel('Accuracy')
+# plt.legend()
+# plt.savefig('{}/{}_best_accuracy_with_different_{}_{}.png'.format(folder_name, dataset_name, label, get_timestamp()))
+# plt.clf()  # Clear the current figure for the next plot
+# plt.close(fig)
+
+# # nineth plot: train learning loss across different lambda
+# fig, ax = add_hyperparameter_text(params)
+# # Plot with evenly spaced points
+# for i, train_learning_loss_list in enumerate(all_train_learning_loss):
+#     label_prefix = f'{label}_{mp_layers[i]}'
+#     ax.plot(train_learning_loss_list, label=f'{label_prefix} train learning loss', linestyle='-')
+# plt.xlabel('Epoch')
+# plt.ylabel('Train Learning Loss')
+# ax.set_yscale("log")
+# plt.legend()
+# plt.savefig('{}/{}_train_learning_loss_with_different_{}_{}.png'.format(folder_name, dataset_name, label, get_timestamp()))
+# plt.clf()  # Clear the current figure for the next plot
+# plt.close(fig)
+
+# # tenth plot: train learning loss across different lambda
+# fig, ax = add_hyperparameter_text(params)
+# # Plot with evenly spaced points
+# for i, valid_learning_loss_list in enumerate(all_valid_learning_loss):
+#     label_prefix = f'{label}_{mp_layers[i]}'
+#     ax.plot(valid_learning_loss_list, label=f'{label_prefix} valid learning loss', linestyle='-')
+# plt.xlabel('Epoch')
+# plt.ylabel('Valid Learning Loss')
+# ax.set_yscale("log")
+# plt.legend()
+# plt.savefig('{}/{}_valid_learning_loss_with_different_{}_{}.png'.format(folder_name, dataset_name, label, get_timestamp()))
+# plt.clf()  # Clear the current figure for the next plot
+# plt.close(fig)
+
+# # nineth plot: train learning loss across different lambda
+# fig, ax = add_hyperparameter_text(params)
+# # Plot with evenly spaced points
+# for i, test_learning_loss_list in enumerate(all_test_learning_loss):
+#     label_prefix = f'{label}_{mp_layers[i]}'
+#     ax.plot(test_learning_loss_list, label=f'{label_prefix} test learning loss', linestyle='-')
+# plt.xlabel('Epoch')
+# plt.ylabel('Test Learning Loss')
+# ax.set_yscale("log")
+# plt.legend()
+# plt.savefig('{}/{}_test_learning_loss_with_different_{}_{}.png'.format(folder_name, dataset_name, label, get_timestamp()))
+# plt.clf()  # Clear the current figure for the next plot
+# plt.close(fig)

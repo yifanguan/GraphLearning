@@ -3,8 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import SGConv
-# https://pytorch-geometric.readthedocs.io/en/2.5.2/tutorial/neighbor_loader.html
-# https://medium.com/stanford-cs224w/a-tour-of-pygs-data-loaders-9f2384e48f8f
+
 
 import torch
 import torch.nn.functional as F
@@ -98,16 +97,12 @@ class MuGNN(nn.Module):
         super().__init__()
         self.act = {"relu": F.relu, "gelu": F.gelu, "tanh": torch.tanh}.get(activation, F.relu)
 
-        self.hidden_dim = hidden_dim
         # SGC: linear transform after K-step propagation
         self.sgc = SGConv(in_channels=input_dim, out_channels=hidden_dim, K=K, cached=cached, bias=bias)
         # SGConv contains a .lin (nn.Linear); we μP-init it as "input weights"
         init_mup_input(self.sgc)
 
 
-        # self.norms = nn.ModuleList([
-        #     nn.LayerNorm(hidden_dim) for _ in range(num_fc_layers)
-        # ])
         # MLP hidden stack (no bias to keep it clean; add if you want)
         self.fcs = nn.ModuleList([
             nn.Linear(hidden_dim, hidden_dim, bias=bias) for _ in range(num_fc_layers)
@@ -117,12 +112,10 @@ class MuGNN(nn.Module):
 
         # Readout (final linear)
         self.readout = nn.Linear(hidden_dim, output_dim, bias=bias)
-        # init_mup_readout(self.readout)
-        nn.init.zeros_(self.readout.weight)
+        init_mup_readout(self.readout)
 
         # simple residual scaling like your draft
-        self.multiplier = 3.0
-        self.scale = (self.multiplier / math.sqrt(num_fc_layers)) if (num_fc_layers > 0 and residual_scale is None) else (residual_scale or 1.0)
+        self.scale = (1.0 / math.sqrt(num_fc_layers)) if (num_fc_layers > 0 and residual_scale is None) else (residual_scale or 1.0)
 
     def forward(self, x, edge_index):
         x = self.sgc(x, edge_index)
@@ -130,9 +123,6 @@ class MuGNN(nn.Module):
             x_in = x
             x = lin(self.act(x))
             x = x_in + self.scale * x
-        # x = self.readout(x)
-        # x = x / self.hidden_dim # output weight multiplier
-        # return x
         return self.readout(x)
 
 
@@ -143,9 +133,6 @@ def mup_param_groups(model, base_lr: float, opt: str = "adam", weight_decay: flo
     # Precompute depth scale (number of hidden layers)
     depth = max(1, len(model.fcs))
     depth_scale = depth ** 0.5  # sqrt(depth)
-
-    # if opt == "adam":
-    #     base_lr = base_lr * depth_scale
 
     # ----- INPUT (SGConv) -----
     fin, fout = fan_in_out(model.sgc)
@@ -186,7 +173,7 @@ def make_mup_optimizer(model, base_lr, opt="adam", weight_decay=0.0, momentum=0.
         return torch.optim.SGD(groups, lr=base_lr, momentum=momentum)
     else:
         return torch.optim.Adam(groups, lr=base_lr, betas=betas)
-
+    
 
 
 
@@ -242,8 +229,8 @@ def train_val_test_mask_helper(dataset_name, dataset):
 
 from utils.dataset import load_dataset, load_large_dataset
 from torch_geometric.utils import to_undirected, add_self_loops
-# dataset_name = 'ogbn-arxiv'
-dataset_name = 'ogbn-products'
+dataset_name = 'ogbn-arxiv'
+# dataset_name = 'ogbn-products'
 # dataset_name = 'cora'
 # dataset_name = 'citeseer'
 # dataset_name = 'wikics'
@@ -260,8 +247,7 @@ dataset.graph.edge_index = to_undirected(dataset.graph.edge_index)
 dataset.graph.edge_index, _ = add_self_loops(dataset.graph.edge_index, num_nodes=n)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 data = dataset.graph
-if dataset_name != 'ogbn-products':
-    data = data.to(device)
+data = data.to(device)
 
 train_val_test_mask_helper(dataset_name, dataset)
 
@@ -302,7 +288,7 @@ print(f"Using device: {device}")
 
 # === Hyperparameters ===
 # widths = [128, 256, 512, 1024]
-widths = [256]
+widths = [512]
 depths = [2,4,6,8,10,12,14,16]
 # depths = [4]
 lrs    = np.linspace(-8, 1, 10)   # add/remove as you like
@@ -316,159 +302,31 @@ results = {}
 # === Define loss function ===
 criterion = torch.nn.CrossEntropyLoss()
 
-from torch_geometric.loader import RandomNodeLoader
-import torch_geometric.transforms as T
-train_loader = None
-test_loader = None
-if dataset_name == 'ogbn-products':
-    # Set split indices to masks.
-    for split in ['train', 'val', 'test']:
-        mask = torch.zeros(data.x.shape[0], dtype=torch.bool)
-        mask[getattr(dataset, f'{split}_idx')] = True
-        data[f'{split}_mask'] = mask
-
-    train_loader = RandomNodeLoader(data, num_parts=10, shuffle=True,
-                                    num_workers=5)
-    # Increase the num_parts of the test loader if you cannot fit
-    # the full batch graph into your GPU:
-    test_loader = RandomNodeLoader(data, num_parts=1, num_workers=5)
-
-transform = T.Compose([T.ToDevice(device), T.ToSparseTensor()])
-# transform = T.Compose([T.ToDevice(device)])
-
 # === Training function ===
 def train(model, data, dataset, optimizer):
     model.train()
     optimizer.zero_grad()
-    if train_loader is None:
-        out = model(data.x, data.edge_index)
-        # loss = criterion(out[data.train_mask], data.y[data.train_mask])
-        loss = criterion(out[dataset.train_idx], data.y[dataset.train_idx])
-        loss.backward()
-        optimizer.step()
-        return loss.item()
-    else:
-        total_loss = 0.0
-        total_examples = 0
-        for data in train_loader:
-            data = transform(data)
-            out = model(data.x, data.adj_t)
-            if hasattr(data, 'n_id'):  # NeighborLoader / ClusterLoader
-                # Seed nodes are the first `batch.batch_size` entries
-                seed_nodes = data.n_id[:data.batch_size]
-                loss = criterion(out[:data.batch_size], data.y[seed_nodes])
-            else:  # RandomNodeLoader (no n_id)
-                loss = criterion(out[data.train_mask], data.y[data.train_mask])
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item() * data.num_nodes
-            total_examples += data.num_nodes
-        loss = total_loss / total_examples
-        return loss
-
+    out = model(data.x, data.edge_index)
+    # loss = criterion(out[data.train_mask], data.y[data.train_mask])
+    loss = criterion(out[dataset.train_idx], data.y[dataset.train_idx])
+    loss.backward()
+    optimizer.step()
+    return loss.item()
 
 # === Evaluation function ===
 @torch.no_grad()
 def evaluate(model, data, dataset):
     model.eval()
+    out = model(data.x, data.edge_index)
     result = {}
-    if test_loader is None:
-        out = model(data.x, data.edge_index)
-        result = {}
-        for split in ['train', 'val', 'test']:
-            mask = getattr(dataset, f"{split}_mask")
-            loss = criterion(out[mask], data.y[mask]).item()
-            pred = out[mask].argmax(dim=1)
-            acc = (pred == data.y[mask]).sum().item() / len(pred)
-            result[f"{split}_loss"] = loss
-            result[f"{split}_acc"] = acc
-    else:
-
-        y_true = {"train": [], "val": [], "test": []}
-        y_pred = {"train": [], "val": [], "test": []}
-        total_loss = {'train': 0, 'val': 0, 'test': 0}
-
-        for data in test_loader:
-            data = transform(data)
-            out = model(data.x, data.adj_t)
-            for split in ['train', 'val', 'test']:
-                mask = data[f'{split}_mask']
-                loss = criterion(out[mask], data.y[mask]).item()
-                total_loss[split] += loss * data.num_nodes
-                pred = out[mask].argmax(dim=1)
-                y_true[split].append(data.y[mask].cpu())
-                y_pred[split].append(pred.cpu())
-                # acc = (pred == data.y[mask]).sum().item() / len(pred)
-
-
-        for split in ['train', 'val', 'test']:
-            concat_y_true = torch.cat(y_true[split], dim=0)
-            result[f"{split}_acc"] = (concat_y_true == torch.cat(y_pred[split], dim=0)).sum().item() / len(concat_y_true)
-            result[f"{split}_loss"] = total_loss[split] / len(concat_y_true)
-
-        # train_acc = evaluator.eval({
-        #     'y_true': torch.cat(y_true['train'], dim=0),
-        #     'y_pred': torch.cat(y_pred['train'], dim=0),
-        # })['acc']
-
-        # valid_acc = evaluator.eval({
-        #     'y_true': torch.cat(y_true['valid'], dim=0),
-        #     'y_pred': torch.cat(y_pred['valid'], dim=0),
-        # })['acc']
-
-        # test_acc = evaluator.eval({
-        #     'y_true': torch.cat(y_true['test'], dim=0),
-        #     'y_pred': torch.cat(y_pred['test'], dim=0),
-        # })['acc']
-
-        # result[f"{split}_loss"] = loss
-        # result[f"{split}_acc"] = acc
-
+    for split in ['train', 'val', 'test']:
+        mask = getattr(dataset, f"{split}_mask")
+        loss = criterion(out[mask], data.y[mask]).item()
+        pred = out[mask].argmax(dim=1)
+        acc = (pred == data.y[mask]).sum().item() / len(pred)
+        result[f"{split}_loss"] = loss
+        result[f"{split}_acc"] = acc
     return result
-
-
-def test():
-    model.eval()
-
-    y_true = {'train': [], 'valid': [], 'test': []}
-    y_pred = {'train': [], 'valid': [], 'test': []}
-
-    pbar = tqdm(total=len(test_loader))
-    pbar.set_description(f'Evaluating epoch: {epoch:04d}')
-
-    for data in test_loader:
-        data = data.to(device)
-        out = model(data.x, data.edge_index, data.edge_attr)
-
-        for split in y_true.keys():
-            mask = data[f'{split}_mask']
-            y_true[split].append(data.y[mask].cpu())
-            y_pred[split].append(out[mask].cpu())
-
-        pbar.update(1)
-
-    pbar.close()
-
-    train_rocauc = evaluator.eval({
-        'y_true': torch.cat(y_true['train'], dim=0),
-        'y_pred': torch.cat(y_pred['train'], dim=0),
-    })['rocauc']
-
-    valid_rocauc = evaluator.eval({
-        'y_true': torch.cat(y_true['valid'], dim=0),
-        'y_pred': torch.cat(y_pred['valid'], dim=0),
-    })['rocauc']
-
-    test_rocauc = evaluator.eval({
-        'y_true': torch.cat(y_true['test'], dim=0),
-        'y_pred': torch.cat(y_pred['test'], dim=0),
-    })['rocauc']
-
-    return train_rocauc, valid_rocauc, test_rocauc
-
-
-
-
 
 # === Main experiment loop ===
 rows = []
@@ -628,7 +486,7 @@ def plot_best_metric(df, metric, title, log_y=False):
         plt.legend(handles=width_handles, title="Width", loc="center right")
 
     plt.tight_layout()
-    plt.savefig(f'mup_products/{dataset_name}_{title}_{get_timestamp()}.png')
+    plt.savefig(f'mup_arxiv_new/{dataset_name}_{title}_{get_timestamp()}.png')
 
 
 plot_best_metric(df, "best_train_loss", "Best Train Loss vs LR", log_y=True)
