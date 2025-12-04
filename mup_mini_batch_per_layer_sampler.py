@@ -135,6 +135,49 @@ class MuGNN(nn.Module):
         # return x
         return self.readout(x)
 
+    @torch.no_grad()
+    def inference(self, x_all, subgraph_loader, device):
+        """
+        Per-layer mini-batch inference following PyG Cluster-GCN example.
+        Works for:
+        SGConv  (interpreted as layer 0)
+        MLP layers
+        readout layer
+        """
+        # ---- layer 0: SGConv ----
+        xs = []
+        for batch_size, n_id, adj in subgraph_loader:
+            edge_index, _, size = adj.to(device)
+            x = x_all[n_id].to(device)
+            x_target = x[:size[1]]
+            x = self.sgc((x, x_target), edge_index)
+            xs.append(x.cpu())
+        x_all = torch.cat(xs, dim=0)
+        # now x_all = SGC embedding of full graph
+
+
+        # ---- hidden MLP layers ----
+        for lin in self.fcs:
+            xs = []
+            for batch_size, n_id, adj in subgraph_loader:
+                x = x_all[n_id].to(device)
+                x_in = x
+                x = lin(self.act(x))
+                x = x_in + self.scale * x
+                xs.append(x.cpu())
+            x_all = torch.cat(xs, dim=0)
+
+
+        # ---- readout layer ----
+        xs = []
+        for batch_size, n_id, adj in subgraph_loader:
+            x = x_all[n_id].to(device)
+            x = self.readout(x)
+            xs.append(x.cpu())
+        x_all = torch.cat(xs, dim=0)
+
+        return x_all
+
 
 def mup_param_groups(model, base_lr: float, opt: str = "adam", weight_decay: float = 0.0):
     assert opt in {"sgd", "adam"}
@@ -226,7 +269,7 @@ def train_val_test_mask_helper(dataset_name, dataset):
     This is the single place for changing them for simplicity.
     Customized for each dataset.
     '''
-    if dataset_name == 'pubmed' or dataset_name == 'cora' or dataset_name == 'citeseer' or dataset_name == 'ogbn-products':
+    if dataset_name == 'pubmed' or dataset_name == 'cora' or dataset_name == 'citeseer':
         transform = RandomNodeSplit(num_train_per_class=0.6, num_val=0.2, num_test=0.2, split='train_rest')
         dataset.graph = transform(dataset.graph)
         dataset.train_idx = dataset.graph.train_mask
@@ -307,9 +350,9 @@ widths = [256]
 depths = [0,1,2,4,8,16]
 # depths = [4]
 # lrs    = np.linspace(-11, 1, 15)   # add/remove as you like
-lrs = np.linspace(-10, -3, 10) # add/remove as you like
+lrs = np.linspace(-10, -3, 12) # add/remove as you like
 
-num_epochs = 10
+num_epochs = 500
 log_every = 10
 
 # === Placeholder for results ===
@@ -356,7 +399,7 @@ if True:
     val_loader = NeighborLoader(
         data,
         # num_neighbors=[-1] * sgc_k,        # use full neighbors for val
-        num_neighbors=[-1],
+        num_neighbors=num_neighbors,
         input_nodes=data.val_mask,
         batch_size=test_batch_size,
         shuffle=False,
@@ -367,13 +410,25 @@ if True:
     test_loader = NeighborLoader(
         data,
         # num_neighbors=[-1] * sgc_k,   # full neighbors for eval (no sampling)
-        num_neighbors=[-1],
+        num_neighbors=num_neighbors,
         input_nodes=data.test_mask,     # all nodes
         batch_size=test_batch_size,
         shuffle=False,
         num_workers=5,
         persistent_workers=True,
     )
+
+########per-layer sampler
+from torch_geometric.loader import NeighborSampler
+
+inference_loader = NeighborSampler(
+    data.edge_index,
+    sizes=[-1],                  # no sampling → full neighbors per layer
+    batch_size=2048,             # tune based on GPU memory
+    shuffle=False,
+    num_workers=5,
+)
+
 # else:
 #     # Neighbor sampling parameters
 #     num_neighbors = [10] * k # sample 10 neighbors per layer (2-hop)

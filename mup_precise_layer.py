@@ -241,8 +241,8 @@ def train_val_test_mask_helper(dataset_name, dataset):
 
 from utils.dataset import load_dataset, load_large_dataset
 from torch_geometric.utils import to_undirected, add_self_loops
-dataset_name = 'ogbn-arxiv'
-# dataset_name = 'ogbn-products'
+# dataset_name = 'ogbn-arxiv'
+dataset_name = 'ogbn-products'
 # dataset_name = 'cora'
 # dataset_name = 'citeseer'
 # dataset_name = 'wikics'
@@ -344,7 +344,7 @@ def evaluate(model, data, dataset):
 
 # === Main experiment loop ===
 rows = []
-folder_name = 'mup_arxiv_mini_batch'
+folder_name = 'mup_products_full_batch'
 
 for width in widths:
     for depth in depths:

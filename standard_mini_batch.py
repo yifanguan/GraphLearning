@@ -197,7 +197,7 @@ def train_val_test_mask_helper(dataset_name, dataset):
     This is the single place for changing them for simplicity.
     Customized for each dataset.
     '''
-    if dataset_name == 'pubmed':
+    if dataset_name == 'pubmed' or dataset_name == 'cora' or dataset_name == 'citeseer' or dataset_name == 'ogbn-products':
         transform = RandomNodeSplit(num_train_per_class=0.6, num_val=0.2, num_test=0.2, split='train_rest')
         dataset.graph = transform(dataset.graph)
         dataset.train_idx = dataset.graph.train_mask
@@ -213,7 +213,8 @@ def train_val_test_mask_helper(dataset_name, dataset):
 
 from utils.dataset import load_dataset, load_large_dataset
 from torch_geometric.utils import to_undirected, add_self_loops
-dataset_name = 'ogbn-arxiv'
+# dataset_name = 'ogbn-arxiv'
+dataset_name = 'ogbn-products'
 # dataset_name = 'pubmed'
 dataset = load_dataset(data_dir='data', dataset_name=dataset_name)
 
@@ -228,7 +229,7 @@ dataset.graph.edge_index = to_undirected(dataset.graph.edge_index)
 dataset.graph.edge_index, _ = add_self_loops(dataset.graph.edge_index, num_nodes=n)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 data = dataset.graph
-data = data.to(device)
+# data = data.to(device)
 
 train_val_test_mask_helper(dataset_name, dataset)
 
@@ -263,13 +264,13 @@ print(f"Using device: {device}")
 # data = dataset[0].to(device)
 
 # === Hyperparameters ===
-widths = [512]
+widths = [256]
 # depths = [2,4,6,8,10,12,14,16]
-depths = [0,1,2,4,8,16]
+depths = [1,2,4,8,16]
 # lrs    = np.linspace(-11, 1, 15)   # add/remove as you like
-lrs    = np.linspace(-14, -3, 15)   # add/remove as you like
+lrs = np.linspace(-14, -5, 12)   # add/remove as you like
 
-num_epochs = 1000
+num_epochs = 10
 log_every = 10
 
 # === Placeholder for results ===
@@ -299,7 +300,7 @@ if True:
 
     # Neighbor sampling parameters
     num_neighbors = [10] * sgc_k # sample 10 neighbors per layer (2-hop)
-    batch_size = 1024
+    batch_size = 2048
 
     train_loader = NeighborLoader(
         data,
@@ -460,7 +461,7 @@ def evaluate(model, loaders, device):
 
 # === Main experiment loop ===
 rows = []
-folder_name = 'standard_arxiv_mini_batch'
+folder_name = 'standard_products_mini_batch'
 
 for width in widths:
     for depth in depths:
