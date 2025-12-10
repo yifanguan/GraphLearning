@@ -120,6 +120,7 @@ class MuGNN(nn.Module):
         nn.init.zeros_(self.readout.weight)
 
         # simple residual scaling like your draft
+        # branch multiplier in tp6
         self.multiplier = 3.0
         self.scale = (self.multiplier / math.sqrt(num_fc_layers)) if (num_fc_layers > 0 and residual_scale is None) else (residual_scale or 1.0)
 
@@ -141,6 +142,7 @@ def mup_param_groups(model, base_lr: float, opt: str = "adam", weight_decay: flo
 
     # Precompute depth scale (number of hidden layers)
     depth = max(1, len(model.fcs))
+    # tp6 depth learning rate
     depth_scale = depth ** 0.5  # sqrt(depth)
 
     # if opt == "adam":
@@ -149,7 +151,7 @@ def mup_param_groups(model, base_lr: float, opt: str = "adam", weight_decay: flo
     # ----- INPUT (SGConv) -----
     fin, fout = fan_in_out(model.sgc)
     W, B = get_linear_like(model.sgc)
-    lr_in = base_lr * (fout if opt == "sgd" else 1.0)
+    lr_in = base_lr * (fout/fin if opt == "sgd" else 1.0)
     params = [W] + ([B] if B is not None else [])
     groups.append({"params": params, "lr": lr_in, "weight_decay": weight_decay})
 
@@ -225,7 +227,7 @@ def train_val_test_mask_helper(dataset_name, dataset):
     This is the single place for changing them for simplicity.
     Customized for each dataset.
     '''
-    if dataset_name == 'pubmed' or dataset_name == 'cora' or dataset_name == 'citeseer':
+    if dataset_name == 'pubmed' or dataset_name == 'cora' or dataset_name == 'citeseer' or dataset_name == 'ogbn-arxiv':
         transform = RandomNodeSplit(num_train_per_class=0.6, num_val=0.2, num_test=0.2, split='train_rest')
         dataset.graph = transform(dataset.graph)
         dataset.train_idx = dataset.graph.train_mask
@@ -241,8 +243,8 @@ def train_val_test_mask_helper(dataset_name, dataset):
 
 from utils.dataset import load_dataset, load_large_dataset
 from torch_geometric.utils import to_undirected, add_self_loops
-# dataset_name = 'ogbn-arxiv'
-dataset_name = 'ogbn-products'
+dataset_name = 'ogbn-arxiv'
+# dataset_name = 'ogbn-products'
 # dataset_name = 'cora'
 # dataset_name = 'citeseer'
 # dataset_name = 'wikics'
@@ -303,9 +305,9 @@ print(f"Using device: {device}")
 widths = [512]
 # depths = [1,2,4,6,8,10]
 # [0,1,2,4,8,16]
-depths = [0,1,2,4,8,16]
+depths = [1,2,4,8,16]
 # depths = [4]
-lrs    = np.linspace(-11, 1, 15)   # add/remove as you like
+lrs    = np.linspace(-7, 3, 11)   # add/remove as you like
 
 num_epochs = 5000
 log_every = 10
@@ -344,7 +346,7 @@ def evaluate(model, data, dataset):
 
 # === Main experiment loop ===
 rows = []
-folder_name = 'mup_products_full_batch'
+folder_name = 'mup_arxiv_sgd_full_batch2'
 
 for width in widths:
     for depth in depths:
@@ -360,7 +362,7 @@ for width in widths:
                 num_fc_layers=depth, # depth = num_fc_layers + 1; actually, so we minus one here
                 K=2).to(device)
 
-            optimizer = make_mup_optimizer(model, base_lr=lr, opt="adam", weight_decay=0.0)
+            optimizer = make_mup_optimizer(model, base_lr=lr, opt="sgd", weight_decay=0.0)
 
             # Best trackers (value + epoch)
             best = {
@@ -372,8 +374,19 @@ for width in widths:
                 "test_acc":   (0.0, -1),
             }
 
+            # loss trackers
+            # we evaluate val and test every log_every epoch, so record these loss point for val and test loss plot
+            # we evaluate train every epoch (for best train loss, we get its value from evaluate step, the train loss plot is
+            # diverged from this observation for more data points purpose) change this part if needed.
+            loss_dict = {
+                "train_loss": [],
+                "val_loss": [],
+                "test_loss": []
+            }
+
             for epoch in range(1, num_epochs + 1):
                 train_loss = train(model, data, dataset, optimizer)
+                loss_dict['train_loss'].append((train_loss, epoch))
 
                 if epoch == 1 or epoch % log_every == 0 or epoch == num_epochs:
                     m = evaluate(model, data, dataset) # result dict
@@ -385,6 +398,10 @@ for width in widths:
                     for k in ["train_acc", "val_acc", "test_acc"]:
                         if m[k] > best[k][0]:
                             best[k] = (m[k], epoch)
+
+                    # record loss
+                    loss_dict['val_loss'].append((m['val_loss'], epoch))
+                    loss_dict['test_loss'].append((m['test_loss'], epoch))
 
                     print(
                         f"Epoch {epoch:03d} | "
@@ -411,6 +428,9 @@ for width in widths:
                 "best_val_acc_epoch": best["val_acc"][1],
                 "best_test_acc": best["test_acc"][0],
                 "best_test_acc_epoch": best["test_acc"][1],
+                "train_loss": loss_dict['train_loss'],
+                "val_loss": loss_dict['val_loss'],
+                "test_loss": loss_dict['test_loss'],
             })
 
 
@@ -419,10 +439,10 @@ from utils.timestamp import get_timestamp
 
 # record full experiment results
 df = pd.DataFrame(rows).sort_values(["depth", "width", "lr"]).reset_index(drop=True)
-csv_path = f"{folder_name}/{dataset_name}_all_runs_{get_timestamp()}.csv"
-df.to_csv(csv_path, index=False)
+file_path = f"{folder_name}/{dataset_name}_all_runs_{get_timestamp()}.pkl"
+df.to_pickle(file_path)
 
-print(f"\nSaved all experiment runs to: {csv_path}")
+print(f"\nSaved all experiment runs to: {file_path}")
 print(df.head())
 
 # aggregate results among (width, depth) pairs, and record the results
@@ -446,8 +466,8 @@ summary_df = (
 # print(summary_df.to_string(index=False))
 
 # Save to CSV
-summary_path = f'{folder_name}/{dataset_name}_best_accuracy_summary_{get_timestamp()}.csv'
-summary_df.to_csv(summary_path, index=False)
+summary_path = f'{folder_name}/{dataset_name}_best_accuracy_summary_{get_timestamp()}.pkl'
+summary_df.to_pickle(summary_path)
 
 
 
@@ -567,3 +587,94 @@ plot_best_metric(df, "best_test_loss", "Best Test Loss vs LR", log_y=True)
 plot_best_metric(df, "best_train_acc", "Best Train Accuracy vs LR", log_y=False)
 plot_best_metric(df, "best_val_acc",  "Best Val Accuracy vs LR",   log_y=False)
 plot_best_metric(df, "best_test_acc", "Best Test Accuracy vs LR", log_y=False)
+
+def plot_loss(df, lr, title_prefix, log_y=False):
+    '''
+    For a given learning rate, plot loss vs epoch for all depths
+    df: main experiment results table (contains train_loss, val_loss, test_loss columns)
+    lr: scalar learning rate to filter rows
+    '''
+    dff = df[df["lr"] == lr].copy()
+    if len(dff) == 0:
+        print(f"[plot_loss] No data found for lr={lr}")
+        return
+
+    # Sort for clean grouping
+    dff = dff.sort_values(["width", "depth"])
+
+    # Unique values
+    depths_sorted = sorted(dff["depth"].unique())
+    widths_sorted = sorted(dff["width"].unique())
+
+    # Color map for different depths
+    palette = sns.color_palette("rocket", n_colors=len(depths_sorted))[::-1]
+    depth_to_color = {d: palette[i] for i, d in enumerate(depths_sorted)}
+
+    # Linestyles for different widths
+    style_cycle = ["solid", "dashed", "dashdot", "dotted", (0, (1, 1))]
+    width_to_style = {w: style_cycle[i % len(style_cycle)] for i, w in enumerate(widths_sorted)}
+
+    # -------- helper to plot one split --------
+    def plot_split(split_name):
+        plt.figure(figsize=(8, 5))
+
+        for (w, d), sub in dff.groupby(["width", "depth"]):
+            row = sub.iloc[0]
+            curve = row[f"{split_name}_loss"]  # list of (loss, epoch)
+
+            if len(curve) == 0:
+                continue
+
+            # unpack tuple list
+            epochs = np.array([e for (_, e) in curve])
+            losses = np.array([l for (l, _) in curve])
+
+            plt.plot(
+                epochs,
+                losses,
+                color=depth_to_color[d],
+                linestyle=width_to_style[w],
+                marker="o",
+                markersize=4,
+                label=f"depth={d}, width={w}"
+            )
+
+        # ------- formatting -------
+        if log_y:
+            plt.yscale("log")
+
+        plt.xlabel("Epoch")
+        plt.ylabel(f"{split_name.capitalize()} Loss")
+        title = f"{split_name.capitalize()} {title_prefix}"
+        plt.title(title)
+        # plt.grid(True, linestyle="--", alpha=0.4)
+
+        # ----- Legends -----
+        depth_handles = [Line2D([0],[0], color=depth_to_color[d], lw=3, label=str(d))
+                         for d in depths_sorted]
+        leg1 = plt.legend(handles=depth_handles,
+                          title="Depth",
+                          loc="upper right")
+        plt.gca().add_artist(leg1)
+
+        # Add width legend only if multiple widths exist
+        if len(widths_sorted) > 1:
+            width_handles = [Line2D([0],[0], color="black", lw=3,
+                                    linestyle=width_to_style[w], label=str(w))
+                             for w in widths_sorted]
+            plt.legend(handles=width_handles, title="Width", loc="center right")
+
+        plt.tight_layout()
+        plt.savefig(f"{folder_name}/{dataset_name}_{title}_{get_timestamp()}.png")
+        plt.close()
+
+    # ---- make all three plots ----
+    plot_split("train")
+    plot_split("val")
+    plot_split("test")
+
+
+# plot loss
+lrs = sorted(pd.to_numeric(df["lr"], errors="coerce").dropna().unique())
+for lr in lrs:
+    plot_loss(df, lr, f'Loss vs epoch for LR: {lr}', log_y=True)
