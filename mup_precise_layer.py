@@ -3,16 +3,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import SGConv
-
-
-import torch
-import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from torch_geometric.datasets import Planetoid
 from torch_geometric.transforms import Compose, NormalizeFeatures, RandomNodeSplit
 import random
 import numpy as np
-import math
+from mup_impl.mup import init_mup_hidden, init_mup_input, init_mup_readout, mup_param_groups
 
 def set_seed(seed=42):
     random.seed(seed)
@@ -22,73 +18,6 @@ def set_seed(seed=42):
 
 set_seed(42)
 
-
-# ---------- helpers ----------
-# -------- robust fan_in/out + linear accessor --------
-import torch.nn as nn
-
-def get_linear_like(module):
-    """
-    Return (weight_tensor, bias_tensor) for the linear transform inside `module`.
-    Works for nn.Linear, PyG convs with .lin, and generic modules exposing .weight.
-    """
-    # nn.Linear
-    if isinstance(module, nn.Linear):
-        return module.weight, module.bias
-
-    # PyG convs often expose a .lin (nn.Linear)
-    if hasattr(module, "lin"):
-        return module.lin.weight, module.lin.bias
-
-    # Generic fallback: try module.weight / module.bias directly
-    if hasattr(module, "weight") and getattr(module.weight, "dim", lambda: 0)() == 2:
-        bias = module.bias if hasattr(module, "bias") else None
-        return module.weight, bias
-
-    raise ValueError(f"Cannot find linear weight in {module.__class__.__name__}")
-
-def fan_in_out(module):
-    """
-    Compute (fan_in, fan_out) in a way that survives PyG layers and compiled wrappers.
-    Priority: explicit attrs -> weight shape.
-    """
-    # Prefer explicit channel/feature attrs if present
-    if hasattr(module, "in_channels") and hasattr(module, "out_channels"):
-        return int(module.in_channels), int(module.out_channels)
-    if hasattr(module, "in_features") and hasattr(module, "out_features"):
-        return int(module.in_features), int(module.out_features)
-
-    # Fallback: infer from weight
-    W, _ = get_linear_like(module)
-    # linear weight is [fan_out, fan_in]
-    return int(W.size(1)), int(W.size(0))
-
-def init_mup_input(module):
-    # Input weights (& biases): Init Var = 1/fan_in
-    fin, _ = fan_in_out(module)
-    W, B = get_linear_like(module)
-    torch.nn.init.normal_(W, 0.0, 1.0 / math.sqrt(fin))
-    if B is not None:
-        # Biases use same row as "input weights & all biases": 1/fan_in
-        torch.nn.init.normal_(B, 0.0, 1.0 / math.sqrt(fin))
-
-def init_mup_hidden(linear_like):
-    # Hidden weights: Init Var = 1/fan_in
-    fin, _ = fan_in_out(linear_like)
-    W, B = get_linear_like(linear_like)
-    torch.nn.init.normal_(W, 0.0, 1.0 / math.sqrt(fin))
-    if B is not None:
-        # Biases use same row as "input weights & all biases": 1/fan_in
-        torch.nn.init.normal_(B, 0.0, 1.0 / math.sqrt(fin))
-
-def init_mup_readout(linear_like):
-    # Output (readout) weights: Init Var = 1/fan_in^2
-    fin, _ = fan_in_out(linear_like)
-    W, B = get_linear_like(linear_like)
-    torch.nn.init.normal_(W, 0.0, 1.0 / fin)  # Var = 1/fin^2
-    if B is not None:
-        # Bias treated like "all biases": 1/fan_in
-        torch.nn.init.normal_(B, 0.0, 1.0 / math.sqrt(fin))  # biases follow input/bias rule
 
 # ---------- model ----------
 class MuGNN(nn.Module):
@@ -116,8 +45,10 @@ class MuGNN(nn.Module):
 
         # Readout (final linear)
         self.readout = nn.Linear(hidden_dim, output_dim, bias=bias)
-        # init_mup_readout(self.readout)
-        nn.init.zeros_(self.readout.weight)
+    
+        # init_mup_readout(self.readout) # option1
+        # all zeros initialization tricks
+        nn.init.zeros_(self.readout.weight) #option2
 
         # simple residual scaling like your draft
         # branch multiplier in tp6
@@ -136,58 +67,12 @@ class MuGNN(nn.Module):
         return self.readout(x)
 
 
-def mup_param_groups(model, base_lr: float, opt: str = "adam", weight_decay: float = 0.0):
-    assert opt in {"sgd", "adam"}
-    groups = []
-
-    # Precompute depth scale (number of hidden layers)
-    depth = max(1, len(model.fcs))
-    # tp6 depth learning rate
-    depth_scale = depth ** 0.5  # sqrt(depth)
-
-    # if opt == "adam":
-    #     base_lr = base_lr * depth_scale
-
-    # ----- INPUT (SGConv) -----
-    fin, fout = fan_in_out(model.sgc)
-    W, B = get_linear_like(model.sgc)
-    lr_in = base_lr * (fout/fin if opt == "sgd" else 1.0)
-    params = [W] + ([B] if B is not None else [])
-    groups.append({"params": params, "lr": lr_in, "weight_decay": weight_decay})
-
-    # ----- HIDDEN -----
-    for hlin in model.fcs:
-        fin_h, _ = fan_in_out(hlin)
-        W_h, B_h = get_linear_like(hlin)
-        # weights
-        # lr_w = base_lr * (1.0 if opt == "sgd" else (1.0 / fin_h))
-        lr_w = base_lr * (1.0 if opt == "sgd" else (1.0 / (fin_h * depth_scale)))
-        groups.append({"params": [W_h], "lr": lr_w, "weight_decay": weight_decay})
-        # biases follow "input & all biases"
-        if B_h is not None:
-            fout_h = W_h.size(0)  # infer fan_out from weight shape
-            lr_b = base_lr * (fout_h if opt == "sgd" else 1.0)
-            groups.append({"params": [B_h], "lr": lr_b, "weight_decay": 0.0})
-
-    # ----- OUTPUT (READOUT) -----
-    fin_o, _ = fan_in_out(model.readout)
-    W_o, B_o = get_linear_like(model.readout)
-    lr_out_w = base_lr / fin_o  # same for SGD & Adam
-    groups.append({"params": [W_o], "lr": lr_out_w, "weight_decay": weight_decay})
-    if B_o is not None:
-        fout_o = W_o.size(0)
-        lr_out_b = base_lr * (fout_o if opt == "sgd" else 1.0)
-        groups.append({"params": [B_o], "lr": lr_out_b, "weight_decay": 0.0})
-
-    return groups
-
 def make_mup_optimizer(model, base_lr, opt="adam", weight_decay=0.0, momentum=0.9, betas=(0.9, 0.999)):
     groups = mup_param_groups(model, base_lr, opt, weight_decay)
     if opt == "sgd":
         return torch.optim.SGD(groups, lr=base_lr, momentum=momentum)
     else:
         return torch.optim.Adam(groups, lr=base_lr, betas=betas)
-
 
 
 
@@ -470,7 +355,6 @@ summary_path = f'{folder_name}/{dataset_name}_best_accuracy_summary_{get_timesta
 summary_df.to_pickle(summary_path)
 
 
-
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -478,7 +362,11 @@ import numpy as np
 from matplotlib.lines import Line2D
 import seaborn as sns
 from utils.timestamp import get_timestamp
+from mup_impl.plot_utils import plot_best_metric, plot_loss
+import mup_impl.plot_utils as pu
 
+pu.folder_name = folder_name
+pu.dataset_name = dataset_name
 
 # --------------------------
 # Results table
@@ -492,94 +380,6 @@ df = pd.DataFrame(rows).sort_values(["depth", "width", "lr"]).reset_index(drop=T
 # --------------------------
 sns.set(style="whitegrid")
 
-def plot_best_metric(df, metric, title, log_y=False):
-    # Clean up
-    dff = df.copy()
-    dff["lr"] = pd.to_numeric(dff["lr"], errors="coerce")
-    dff = dff.dropna(subset=["lr", metric])
-
-    plt.figure(figsize=(8, 5))
-
-    widths_sorted = sorted(dff["width"].unique())
-    depths_sorted = sorted(dff["depth"].unique())
-
-    # Depth → color (rocket reversed: black→orange)
-    palette = sns.color_palette("rocket", n_colors=len(depths_sorted))[::-1]
-    depth_to_color = {d: palette[i] for i, d in enumerate(depths_sorted)}
-
-    # Width → linestyle
-    style_cycle = ["solid", "dashed", "dashdot", "dotted", (0, (1, 1))]
-    width_to_style = {w: style_cycle[i % len(style_cycle)] for i, w in enumerate(widths_sorted)}
-
-    # Plot one curve per (width, depth)
-    for (w, d), sub in dff.groupby(["width", "depth"]):
-        sub = sub.sort_values("lr")
-        x = sub["lr"].to_numpy()
-        y = sub[metric].to_numpy()
-
-        if log_y:
-            mask = y > 0
-            x, y = x[mask], y[mask]
-            if x.size == 0:
-                continue
-
-        plt.plot(
-            x, y,
-            label=f"depth={d}, width={w}",
-            color=depth_to_color[d],      # depth controls color
-            linestyle=width_to_style[w],  # width controls line shape
-            marker="o",
-            markersize=4,
-        )
-
-    # ---- Find and mark the global best value ----
-    if "acc" in metric:
-        best_idx = dff[metric].idxmax()   # higher = better
-    else:
-        best_idx = dff[metric].idxmin()   # lower = better
-
-    # best_idx = dff[metric].idxmax()
-    best_row = dff.loc[best_idx]
-    best_lr = best_row["lr"]
-    best_val = best_row[metric]
-
-    # Add horizontal dashed line and annotation
-    plt.axhline(best_val, color="gray", linestyle="--", linewidth=1)
-    plt.text(
-        x=dff["lr"].min(), y=best_val + 0.002,  # a little above the line
-        s=f"Best {metric}: {best_val:.4f}",
-        color="gray",
-        fontsize=10,
-        ha="left",
-        va="bottom"
-    )
-
-    # Scales and labels
-    if log_y:
-        plt.yscale("log")
-    plt.xscale("log")
-    plt.xlabel("Learning rate")
-    plt.ylabel(metric.replace("_", " "))
-    plt.title(title)
-
-    # ----- Legends -----
-    depth_handles = [Line2D([0],[0], color=depth_to_color[d], lw=3, label=str(d))
-                     for d in depths_sorted]
-    leg1 = plt.legend(handles=depth_handles,
-                      title="Depth",
-                      loc="upper right")
-    plt.gca().add_artist(leg1)
-
-    # Add width legend only if multiple widths exist
-    if len(widths_sorted) > 1:
-        width_handles = [Line2D([0],[0], color="black", lw=3,
-                                linestyle=width_to_style[w], label=str(w))
-                         for w in widths_sorted]
-        plt.legend(handles=width_handles, title="Width", loc="center right")
-
-    plt.tight_layout()
-    plt.savefig(f'{folder_name}/{dataset_name}_{title}_{get_timestamp()}.png')
-
 plot_best_metric(df, "best_train_loss", "Best Train Loss vs LR", log_y=True)
 plot_best_metric(df, "best_val_loss",  "Best Val Loss vs LR",   log_y=True)
 plot_best_metric(df, "best_test_loss", "Best Test Loss vs LR", log_y=True)
@@ -587,91 +387,6 @@ plot_best_metric(df, "best_test_loss", "Best Test Loss vs LR", log_y=True)
 plot_best_metric(df, "best_train_acc", "Best Train Accuracy vs LR", log_y=False)
 plot_best_metric(df, "best_val_acc",  "Best Val Accuracy vs LR",   log_y=False)
 plot_best_metric(df, "best_test_acc", "Best Test Accuracy vs LR", log_y=False)
-
-def plot_loss(df, lr, title_prefix, log_y=False):
-    '''
-    For a given learning rate, plot loss vs epoch for all depths
-    df: main experiment results table (contains train_loss, val_loss, test_loss columns)
-    lr: scalar learning rate to filter rows
-    '''
-    dff = df[df["lr"] == lr].copy()
-    if len(dff) == 0:
-        print(f"[plot_loss] No data found for lr={lr}")
-        return
-
-    # Sort for clean grouping
-    dff = dff.sort_values(["width", "depth"])
-
-    # Unique values
-    depths_sorted = sorted(dff["depth"].unique())
-    widths_sorted = sorted(dff["width"].unique())
-
-    # Color map for different depths
-    palette = sns.color_palette("rocket", n_colors=len(depths_sorted))[::-1]
-    depth_to_color = {d: palette[i] for i, d in enumerate(depths_sorted)}
-
-    # Linestyles for different widths
-    style_cycle = ["solid", "dashed", "dashdot", "dotted", (0, (1, 1))]
-    width_to_style = {w: style_cycle[i % len(style_cycle)] for i, w in enumerate(widths_sorted)}
-
-    # -------- helper to plot one split --------
-    def plot_split(split_name):
-        plt.figure(figsize=(8, 5))
-
-        for (w, d), sub in dff.groupby(["width", "depth"]):
-            row = sub.iloc[0]
-            curve = row[f"{split_name}_loss"]  # list of (loss, epoch)
-
-            if len(curve) == 0:
-                continue
-
-            # unpack tuple list
-            epochs = np.array([e for (_, e) in curve])
-            losses = np.array([l for (l, _) in curve])
-
-            plt.plot(
-                epochs,
-                losses,
-                color=depth_to_color[d],
-                linestyle=width_to_style[w],
-                marker="o",
-                markersize=4,
-                label=f"depth={d}, width={w}"
-            )
-
-        # ------- formatting -------
-        if log_y:
-            plt.yscale("log")
-
-        plt.xlabel("Epoch")
-        plt.ylabel(f"{split_name.capitalize()} Loss")
-        title = f"{split_name.capitalize()} {title_prefix}"
-        plt.title(title)
-        # plt.grid(True, linestyle="--", alpha=0.4)
-
-        # ----- Legends -----
-        depth_handles = [Line2D([0],[0], color=depth_to_color[d], lw=3, label=str(d))
-                         for d in depths_sorted]
-        leg1 = plt.legend(handles=depth_handles,
-                          title="Depth",
-                          loc="upper right")
-        plt.gca().add_artist(leg1)
-
-        # Add width legend only if multiple widths exist
-        if len(widths_sorted) > 1:
-            width_handles = [Line2D([0],[0], color="black", lw=3,
-                                    linestyle=width_to_style[w], label=str(w))
-                             for w in widths_sorted]
-            plt.legend(handles=width_handles, title="Width", loc="center right")
-
-        plt.tight_layout()
-        plt.savefig(f"{folder_name}/{dataset_name}_{title}_{get_timestamp()}.png")
-        plt.close()
-
-    # ---- make all three plots ----
-    plot_split("train")
-    plot_split("val")
-    plot_split("test")
 
 
 # plot loss
