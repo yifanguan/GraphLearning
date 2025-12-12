@@ -17,8 +17,16 @@ def _check():
     if dataset_name is None:
         raise ValueError("plot_utils: 'dataset_name' is not set.")    
 
-def plot_best_metric(df, metric, title, log_y=False):
+def plot_best_metric(df, metric, title, log_y=False, use_last=False):
     _check()
+    if use_last:
+        '''
+        plot using last epoch result instead of best result
+        '''
+        if 'best_' in metric:
+            raise ValueError("plot_best_metric: best metric is used to plot last metric.")
+        metric = f"last_{metric}"
+
     # Clean up
     dff = df.copy()
     dff["lr"] = pd.to_numeric(dff["lr"], errors="coerce")
@@ -193,3 +201,36 @@ def plot_loss(df, lr, title_prefix, log_y=False):
     plot_split("train")
     plot_split("val")
     plot_split("test")
+
+def save_results(rows, folder_name, dataset_name):
+    # record full experiment results
+    df = pd.DataFrame(rows).sort_values(["depth", "width", "lr"]).reset_index(drop=True)
+    file_path = f"{folder_name}/{dataset_name}_all_runs_{get_timestamp()}.pkl"
+    df.to_pickle(file_path)
+
+    print(f"\nSaved all experiment runs to: {file_path}")
+    print(df.head())
+
+    # aggregate results among (width, depth) pairs, and record the results
+    # ============================================================
+    # Aggregate best accuracies across LRs
+    # ============================================================
+    summary_df = (
+        df.groupby(["depth", "width"], as_index=False)
+        .agg({
+            "best_train_acc": "max",
+            "best_val_acc": "max",
+            "best_test_acc": "max",
+            "best_train_loss": "min",
+            "best_val_loss": "min",
+            "best_test_loss": "min"
+        })
+        .sort_values(["depth", "width"])
+    )
+
+    # print("\n=== BEST ACCURACY SUMMARY (per width, depth) ===")
+    # print(summary_df.to_string(index=False))
+
+    # Save Results/Tables
+    summary_path = f'{folder_name}/{dataset_name}_best_accuracy_summary_{get_timestamp()}.pkl'
+    summary_df.to_pickle(summary_path)

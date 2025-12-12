@@ -3,6 +3,9 @@
 import torch.nn as nn
 import torch
 import math
+import torch.nn.functional as F
+from torch_geometric.nn import SGConv
+
 
 def get_linear_like(module):
     """
@@ -111,3 +114,57 @@ def mup_param_groups(model, base_lr: float, opt: str = "adam", weight_decay: flo
         groups.append({"params": [B_o], "lr": lr_out_b, "weight_decay": 0.0})
 
     return groups
+
+# ---------- model ----------
+class MuGNN(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim, num_fc_layers, K=2, cached=False,
+                 activation="gelu", residual_scale=None, bias=False):
+        super().__init__()
+        self.act = {"relu": F.relu, "gelu": F.gelu, "tanh": torch.tanh}.get(activation, F.relu)
+
+        self.hidden_dim = hidden_dim
+        # SGC: linear transform after K-step propagation
+        self.sgc = SGConv(in_channels=input_dim, out_channels=hidden_dim, K=K, cached=cached, bias=bias)
+        # SGConv contains a .lin (nn.Linear); we μP-init it as "input weights"
+        init_mup_input(self.sgc)
+
+
+        # self.norms = nn.ModuleList([
+        #     nn.LayerNorm(hidden_dim) for _ in range(num_fc_layers)
+        # ])
+        # MLP hidden stack (no bias to keep it clean; add if you want)
+        self.fcs = nn.ModuleList([
+            nn.Linear(hidden_dim, hidden_dim, bias=bias) for _ in range(num_fc_layers)
+        ])
+        for lin in self.fcs:
+            init_mup_hidden(lin)
+
+        # Readout (final linear)
+        self.readout = nn.Linear(hidden_dim, output_dim, bias=bias)
+    
+        # init_mup_readout(self.readout) # option1
+        # all zeros initialization tricks
+        nn.init.zeros_(self.readout.weight) #option2
+
+        # simple residual scaling like your draft
+        # branch multiplier in tp6
+        self.multiplier = 3.0
+        self.scale = (self.multiplier / math.sqrt(num_fc_layers)) if (num_fc_layers > 0 and residual_scale is None) else (residual_scale or 1.0)
+
+    def forward(self, x, edge_index):
+        x = self.sgc(x, edge_index)
+        for lin in self.fcs:
+            x_in = x
+            x = lin(self.act(x))
+            x = x_in + self.scale * x
+        # x = self.readout(x)
+        # x = x / self.hidden_dim # output weight multiplier
+        # return x
+        return self.readout(x)
+
+def make_mup_optimizer(model, base_lr, opt="adam", weight_decay=0.0, momentum=0.9, betas=(0.9, 0.999)):
+    groups = mup_param_groups(model, base_lr, opt, weight_decay)
+    if opt == "sgd":
+        return torch.optim.SGD(groups, lr=base_lr, momentum=momentum)
+    else:
+        return torch.optim.Adam(groups, lr=base_lr, betas=betas)

@@ -8,7 +8,16 @@ from torch_geometric.datasets import Planetoid
 from torch_geometric.transforms import Compose, NormalizeFeatures, RandomNodeSplit
 import random
 import numpy as np
-from mup_impl.mup import init_mup_hidden, init_mup_input, init_mup_readout, mup_param_groups
+from utils.dataset import load_dataset, load_large_dataset
+from torch_geometric.utils import to_undirected, add_self_loops
+from mup_impl.mup import init_mup_hidden, init_mup_input, init_mup_readout, mup_param_groups, MuGNN, make_mup_optimizer
+from mup_impl.train import train_val_test_mask_helper
+import pandas as pd
+from matplotlib.lines import Line2D
+import seaborn as sns
+from utils.timestamp import get_timestamp
+from mup_impl.plot_utils import plot_best_metric, plot_loss, save_results
+import mup_impl.plot_utils as pu
 
 def set_seed(seed=42):
     random.seed(seed)
@@ -18,121 +27,16 @@ def set_seed(seed=42):
 
 set_seed(42)
 
-
-# ---------- model ----------
-class MuGNN(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, num_fc_layers, K=2, cached=False,
-                 activation="gelu", residual_scale=None, bias=False):
-        super().__init__()
-        self.act = {"relu": F.relu, "gelu": F.gelu, "tanh": torch.tanh}.get(activation, F.relu)
-
-        self.hidden_dim = hidden_dim
-        # SGC: linear transform after K-step propagation
-        self.sgc = SGConv(in_channels=input_dim, out_channels=hidden_dim, K=K, cached=cached, bias=bias)
-        # SGConv contains a .lin (nn.Linear); we μP-init it as "input weights"
-        init_mup_input(self.sgc)
-
-
-        # self.norms = nn.ModuleList([
-        #     nn.LayerNorm(hidden_dim) for _ in range(num_fc_layers)
-        # ])
-        # MLP hidden stack (no bias to keep it clean; add if you want)
-        self.fcs = nn.ModuleList([
-            nn.Linear(hidden_dim, hidden_dim, bias=bias) for _ in range(num_fc_layers)
-        ])
-        for lin in self.fcs:
-            init_mup_hidden(lin)
-
-        # Readout (final linear)
-        self.readout = nn.Linear(hidden_dim, output_dim, bias=bias)
-    
-        # init_mup_readout(self.readout) # option1
-        # all zeros initialization tricks
-        nn.init.zeros_(self.readout.weight) #option2
-
-        # simple residual scaling like your draft
-        # branch multiplier in tp6
-        self.multiplier = 3.0
-        self.scale = (self.multiplier / math.sqrt(num_fc_layers)) if (num_fc_layers > 0 and residual_scale is None) else (residual_scale or 1.0)
-
-    def forward(self, x, edge_index):
-        x = self.sgc(x, edge_index)
-        for lin in self.fcs:
-            x_in = x
-            x = lin(self.act(x))
-            x = x_in + self.scale * x
-        # x = self.readout(x)
-        # x = x / self.hidden_dim # output weight multiplier
-        # return x
-        return self.readout(x)
-
-
-def make_mup_optimizer(model, base_lr, opt="adam", weight_decay=0.0, momentum=0.9, betas=(0.9, 0.999)):
-    groups = mup_param_groups(model, base_lr, opt, weight_decay)
-    if opt == "sgd":
-        return torch.optim.SGD(groups, lr=base_lr, momentum=momentum)
-    else:
-        return torch.optim.Adam(groups, lr=base_lr, betas=betas)
-
-
-
-# experiment code:
-
-# from torch_geometric.datasets import Planetoid
-from torch_geometric.transforms import Compose, NormalizeFeatures, RandomNodeSplit
-
-# transform = Compose([
-#     NormalizeFeatures(),
-#     RandomNodeSplit(num_train_per_class=0.6, num_val=0.2, num_test=0.2, split='train_rest')
-#     # RandomNodeSplit(split="random", num_train_per_class=20, num_val=500, num_test=1000)
-# ])
-
-# # dataset = Planetoid(root='/tmp/Cora', name='Cora', transform=transform)
-# dataset = Planetoid(root='/tmp/PubMed', name='PubMed', transform=transform)
-# # dataset = Amazon(root='/tmp/Amazon', name='Computers', transform=transform)
-# # dataset = Amazon(root='/tmp/Amazon', name='Photo', transform=transform)
-# # dataset = Coauthor(root='/tmp/Coauthor', name='Physics', transform=transform)
-# # dataset = Coauthor(root='/tmp/Coauthor', name='CS', transform=transform)
-# # dataset = WikiCS(root='/tmp/WikiCS', transform=transform)
-# data = dataset[0]
-
-# # Device
-# device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-# print(f"Using device: {device}")
-# data = data.to(device)
-# print(f"# Train: {data.train_mask.sum().item()}")
-# print(f"# Val: {data.val_mask.sum().item()}")
-# print(f"# Test: {data.test_mask.sum().item()}")
-
-
-
-def train_val_test_mask_helper(dataset_name, dataset):
-    '''
-    UPDATE dataset masks and idx for experiment.
-    This is the single place for changing them for simplicity.
-    Customized for each dataset.
-    '''
-    if dataset_name == 'pubmed' or dataset_name == 'cora' or dataset_name == 'citeseer' or dataset_name == 'ogbn-arxiv':
-        transform = RandomNodeSplit(num_train_per_class=0.6, num_val=0.2, num_test=0.2, split='train_rest')
-        dataset.graph = transform(dataset.graph)
-        dataset.train_idx = dataset.graph.train_mask
-        dataset.train_mask = dataset.graph.train_mask
-        dataset.val_idx = dataset.graph.val_mask
-        dataset.val_mask = dataset.graph.val_mask
-        dataset.test_idx = dataset.graph.test_mask
-        dataset.test_mask = dataset.graph.test_mask
-
-    return dataset
-
-
-
-from utils.dataset import load_dataset, load_large_dataset
-from torch_geometric.utils import to_undirected, add_self_loops
+# === experiment args === (TODO: make them a arg list when needed including hyperparameters)
 dataset_name = 'ogbn-arxiv'
+folder_name = 'mup_arxiv_sgd_full_batch2'
 # dataset_name = 'ogbn-products'
 # dataset_name = 'cora'
 # dataset_name = 'citeseer'
 # dataset_name = 'wikics'
+
+
+# === Dataset ===
 dataset = load_dataset(data_dir='data', dataset_name=dataset_name)
 
 display_step = 10
@@ -160,30 +64,10 @@ print(f"# Train: {len(dataset.train_mask)}")
 print(f"# Val: {len(dataset.val_mask)}")
 print(f"# Test: {len(dataset.test_mask)}")
 
-import torch
-import torch.nn.functional as F
-import matplotlib.pyplot as plt
-from torch_geometric.datasets import Planetoid
-from torch_geometric.transforms import Compose, NormalizeFeatures, RandomNodeSplit
-import random
-import numpy as np
-import math
-
-def set_seed(seed=42):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-
-set_seed(42)
 
 # === Setup ===
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
-
-# === Dataset ===
-# dataset = Planetoid(root='/tmp/Cora', name='Cora')
-# data = dataset[0].to(device)
 
 # === Hyperparameters ===
 # widths = [128, 256, 512, 1024]
@@ -194,7 +78,7 @@ depths = [1,2,4,8,16]
 # depths = [4]
 lrs    = np.linspace(-7, 3, 11)   # add/remove as you like
 
-num_epochs = 5000
+num_epochs = 4000
 log_every = 10
 
 # === Placeholder for results ===
@@ -231,8 +115,6 @@ def evaluate(model, data, dataset):
 
 # === Main experiment loop ===
 rows = []
-folder_name = 'mup_arxiv_sgd_full_batch2'
-
 for width in widths:
     for depth in depths:
         for log2lr in lrs:
@@ -295,6 +177,8 @@ for width in widths:
                         f"Test: loss {m['test_loss']:.4f}, acc {m['test_acc']:.4f}, best {best['test_acc'][0]:.4f} (ep {best['test_acc'][1]})"
                     )
 
+            # last epoch metrics
+            last_m = evaluate(model, data, dataset)
 
             # store a row per run
             rows.append({
@@ -316,54 +200,16 @@ for width in widths:
                 "train_loss": loss_dict['train_loss'],
                 "val_loss": loss_dict['val_loss'],
                 "test_loss": loss_dict['test_loss'],
+                "last_train_loss": last_m["train_loss"],
+                "last_val_loss": last_m["val_loss"],
+                "last_test_loss": last_m["test_loss"],
+                "last_train_acc": last_m["train_acc"],
+                "last_val_acc": last_m["val_acc"],
+                "last_test_acc": last_m["test_acc"],
             })
 
-
-import pandas as pd
-from utils.timestamp import get_timestamp
-
-# record full experiment results
-df = pd.DataFrame(rows).sort_values(["depth", "width", "lr"]).reset_index(drop=True)
-file_path = f"{folder_name}/{dataset_name}_all_runs_{get_timestamp()}.pkl"
-df.to_pickle(file_path)
-
-print(f"\nSaved all experiment runs to: {file_path}")
-print(df.head())
-
-# aggregate results among (width, depth) pairs, and record the results
-# ============================================================
-# Aggregate best accuracies across LRs
-# ============================================================
-summary_df = (
-    df.groupby(["depth", "width"], as_index=False)
-      .agg({
-          "best_train_acc": "max",
-          "best_val_acc": "max",
-          "best_test_acc": "max",
-          "best_train_loss": "min",
-          "best_val_loss": "min",
-          "best_test_loss": "min"
-      })
-      .sort_values(["depth", "width"])
-)
-
-# print("\n=== BEST ACCURACY SUMMARY (per width, depth) ===")
-# print(summary_df.to_string(index=False))
-
-# Save to CSV
-summary_path = f'{folder_name}/{dataset_name}_best_accuracy_summary_{get_timestamp()}.pkl'
-summary_df.to_pickle(summary_path)
-
-
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-import numpy as np
-from matplotlib.lines import Line2D
-import seaborn as sns
-from utils.timestamp import get_timestamp
-from mup_impl.plot_utils import plot_best_metric, plot_loss
-import mup_impl.plot_utils as pu
+# Save Results
+save_results(rows, folder_name, dataset_name)
 
 pu.folder_name = folder_name
 pu.dataset_name = dataset_name
@@ -387,6 +233,14 @@ plot_best_metric(df, "best_test_loss", "Best Test Loss vs LR", log_y=True)
 plot_best_metric(df, "best_train_acc", "Best Train Accuracy vs LR", log_y=False)
 plot_best_metric(df, "best_val_acc",  "Best Val Accuracy vs LR",   log_y=False)
 plot_best_metric(df, "best_test_acc", "Best Test Accuracy vs LR", log_y=False)
+
+plot_best_metric(df, "train_loss", "Last Train Loss vs LR", log_y=True, use_last=True)
+plot_best_metric(df, "val_loss",   "Last Val Loss vs LR",   log_y=True, use_last=True)
+plot_best_metric(df, "test_loss",  "Last Test Loss vs LR",  log_y=True, use_last=True)
+
+plot_best_metric(df, "train_acc", "Last Train Accuracy vs LR", log_y=False, use_last=True)
+plot_best_metric(df, "val_acc",   "Last Val Accuracy vs LR",   log_y=False, use_last=True)
+plot_best_metric(df, "test_acc",  "Last Test Accuracy vs LR",  log_y=False, use_last=True)
 
 
 # plot loss
