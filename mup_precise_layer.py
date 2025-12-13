@@ -11,13 +11,14 @@ import numpy as np
 from utils.dataset import load_dataset, load_large_dataset
 from torch_geometric.utils import to_undirected, add_self_loops
 from mup_impl.mup import init_mup_hidden, init_mup_input, init_mup_readout, mup_param_groups, MuGNN, make_mup_optimizer
-from mup_impl.train import train_val_test_mask_helper
+from mup_impl.train import train_val_test_mask_helper, train_loop
 import pandas as pd
 from matplotlib.lines import Line2D
 import seaborn as sns
 from utils.timestamp import get_timestamp
 from mup_impl.plot_utils import plot_best_metric, plot_loss, save_results
 import mup_impl.plot_utils as pu
+from functools import partial
 
 def set_seed(seed=42):
     random.seed(seed)
@@ -29,7 +30,7 @@ set_seed(42)
 
 # === experiment args === (TODO: make them a arg list when needed including hyperparameters)
 dataset_name = 'ogbn-arxiv'
-folder_name = 'mup_arxiv_sgd_full_batch2'
+folder_name = 'mup_arxiv_sgd_full_batch3'
 # dataset_name = 'ogbn-products'
 # dataset_name = 'cora'
 # dataset_name = 'citeseer'
@@ -78,7 +79,7 @@ depths = [1,2,4,8,16]
 # depths = [4]
 lrs    = np.linspace(-7, 3, 11)   # add/remove as you like
 
-num_epochs = 4000
+num_epochs = 4
 log_every = 10
 
 # === Placeholder for results ===
@@ -114,99 +115,10 @@ def evaluate(model, data, dataset):
     return result
 
 # === Main experiment loop ===
-rows = []
-for width in widths:
-    for depth in depths:
-        for log2lr in lrs:
-            lr = 2**log2lr
-            key = f"width={width} depth={depth} lr={lr:g}"
-            print(f"\n=== Training {key} ===")
-
-            model = MuGNN(
-                input_dim=d, # dataset.num_node_features
-                hidden_dim=width,
-                output_dim=dataset.num_classes, # dataset.num_classes
-                num_fc_layers=depth, # depth = num_fc_layers + 1; actually, so we minus one here
-                K=2).to(device)
-
-            optimizer = make_mup_optimizer(model, base_lr=lr, opt="sgd", weight_decay=0.0)
-
-            # Best trackers (value + epoch)
-            best = {
-                "train_loss": (math.inf, -1),
-                "val_loss":   (math.inf, -1),
-                "test_loss":  (math.inf, -1),
-                "train_acc":  (0.0, -1),
-                "val_acc":    (0.0, -1),
-                "test_acc":   (0.0, -1),
-            }
-
-            # loss trackers
-            # we evaluate val and test every log_every epoch, so record these loss point for val and test loss plot
-            # we evaluate train every epoch (for best train loss, we get its value from evaluate step, the train loss plot is
-            # diverged from this observation for more data points purpose) change this part if needed.
-            loss_dict = {
-                "train_loss": [],
-                "val_loss": [],
-                "test_loss": []
-            }
-
-            for epoch in range(1, num_epochs + 1):
-                train_loss = train(model, data, dataset, optimizer)
-                loss_dict['train_loss'].append((train_loss, epoch))
-
-                if epoch == 1 or epoch % log_every == 0 or epoch == num_epochs:
-                    m = evaluate(model, data, dataset) # result dict
-
-                    # update bests
-                    for k in ["train_loss", "val_loss", "test_loss"]:
-                        if m[k] < best[k][0]:
-                            best[k] = (m[k], epoch)
-                    for k in ["train_acc", "val_acc", "test_acc"]:
-                        if m[k] > best[k][0]:
-                            best[k] = (m[k], epoch)
-
-                    # record loss
-                    loss_dict['val_loss'].append((m['val_loss'], epoch))
-                    loss_dict['test_loss'].append((m['test_loss'], epoch))
-
-                    print(
-                        f"Epoch {epoch:03d} | "
-                        f"Train: loss {m['train_loss']:.4f}, acc {m['train_acc']:.4f}, best {best['train_acc'][0]:.4f} (ep {best['train_acc'][1]}) | "
-                        f"Val: loss {m['val_loss']:.4f}, acc {m['val_acc']:.4f}, best {best['val_acc'][0]:.4f} (ep {best['val_acc'][1]}) | "
-                        f"Test: loss {m['test_loss']:.4f}, acc {m['test_acc']:.4f}, best {best['test_acc'][0]:.4f} (ep {best['test_acc'][1]})"
-                    )
-
-            # last epoch metrics
-            last_m = evaluate(model, data, dataset)
-
-            # store a row per run
-            rows.append({
-                "width": width,
-                "depth": depth,
-                "lr": lr,
-                "best_train_loss": best["train_loss"][0],
-                "best_train_loss_epoch": best["train_loss"][1],
-                "best_val_loss": best["val_loss"][0],
-                "best_val_loss_epoch": best["val_loss"][1],
-                "best_test_loss": best["test_loss"][0],
-                "best_test_loss_epoch": best["test_loss"][1],
-                "best_train_acc": best["train_acc"][0],
-                "best_train_acc_epoch": best["train_acc"][1],
-                "best_val_acc": best["val_acc"][0],
-                "best_val_acc_epoch": best["val_acc"][1],
-                "best_test_acc": best["test_acc"][0],
-                "best_test_acc_epoch": best["test_acc"][1],
-                "train_loss": loss_dict['train_loss'],
-                "val_loss": loss_dict['val_loss'],
-                "test_loss": loss_dict['test_loss'],
-                "last_train_loss": last_m["train_loss"],
-                "last_val_loss": last_m["val_loss"],
-                "last_test_loss": last_m["test_loss"],
-                "last_train_acc": last_m["train_acc"],
-                "last_val_acc": last_m["val_acc"],
-                "last_test_acc": last_m["test_acc"],
-            })
+train_func = partial(train, data=data, dataset=dataset)
+evaluate_func = partial(evaluate, data=data, dataset=dataset)
+rows = train_loop(widths, depths, lrs, input_dim=d, output_dim=dataset.num_classes, K=2, device=device,
+                  num_epochs=num_epochs, log_every=log_every, train_func=train_func, evaluate_func=evaluate_func)
 
 # Save Results
 save_results(rows, folder_name, dataset_name)

@@ -5,7 +5,6 @@ import torch.nn.functional as F
 from torch_geometric.nn import SGConv
 # https://pytorch-geometric.readthedocs.io/en/2.5.2/tutorial/neighbor_loader.html
 # https://medium.com/stanford-cs224w/a-tour-of-pygs-data-loaders-9f2384e48f8f
-
 import torch
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
@@ -13,8 +12,20 @@ from torch_geometric.datasets import Planetoid
 from torch_geometric.transforms import Compose, NormalizeFeatures, RandomNodeSplit
 import random
 import numpy as np
-import math
-from mup_impl.mup import init_mup_input, init_mup_hidden, init_mup_readout, mup_param_groups, MuGNN
+from mup_impl.mup import init_mup_input, init_mup_hidden, init_mup_readout, mup_param_groups, MuGNN, make_mup_optimizer
+from mup_impl.train import train_val_test_mask_helper, train_loop
+from utils.dataset import load_dataset, load_large_dataset
+from torch_geometric.utils import to_undirected, add_self_loops
+from torch_geometric.loader import RandomNodeLoader, NeighborLoader
+import torch_geometric.transforms as T
+import pandas as pd
+from utils.timestamp import get_timestamp
+from functools import partial
+import seaborn as sns
+from matplotlib.lines import Line2D
+from mup_impl.plot_utils import plot_best_metric, plot_loss, save_results
+import mup_impl.plot_utils as pu
+import time
 
 def set_seed(seed=42):
     random.seed(seed)
@@ -24,66 +35,8 @@ def set_seed(seed=42):
 
 set_seed(42)
 
-def make_mup_optimizer(model, base_lr, opt="adam", weight_decay=0.0, momentum=0.9, betas=(0.9, 0.999)):
-    groups = mup_param_groups(model, base_lr, opt, weight_decay)
-    if opt == "sgd":
-        return torch.optim.SGD(groups, lr=base_lr, momentum=momentum)
-    else:
-        return torch.optim.Adam(groups, lr=base_lr, betas=betas)
-
-
-# experiment code:
-
-# from torch_geometric.datasets import Planetoid
-from torch_geometric.transforms import Compose, NormalizeFeatures, RandomNodeSplit
-
-# transform = Compose([
-#     NormalizeFeatures(),
-#     RandomNodeSplit(num_train_per_class=0.6, num_val=0.2, num_test=0.2, split='train_rest')
-#     # RandomNodeSplit(split="random", num_train_per_class=20, num_val=500, num_test=1000)
-# ])
-
-# # dataset = Planetoid(root='/tmp/Cora', name='Cora', transform=transform)
-# dataset = Planetoid(root='/tmp/PubMed', name='PubMed', transform=transform)
-# # dataset = Amazon(root='/tmp/Amazon', name='Computers', transform=transform)
-# # dataset = Amazon(root='/tmp/Amazon', name='Photo', transform=transform)
-# # dataset = Coauthor(root='/tmp/Coauthor', name='Physics', transform=transform)
-# # dataset = Coauthor(root='/tmp/Coauthor', name='CS', transform=transform)
-# # dataset = WikiCS(root='/tmp/WikiCS', transform=transform)
-# data = dataset[0]
-
-# # Device
-# device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-# print(f"Using device: {device}")
-# data = data.to(device)
-# print(f"# Train: {data.train_mask.sum().item()}")
-# print(f"# Val: {data.val_mask.sum().item()}")
-# print(f"# Test: {data.test_mask.sum().item()}")
-
-
-
-def train_val_test_mask_helper(dataset_name, dataset):
-    '''
-    UPDATE dataset masks and idx for experiment.
-    This is the single place for changing them for simplicity.
-    Customized for each dataset.
-    '''
-    if dataset_name == 'pubmed' or dataset_name == 'cora' or dataset_name == 'citeseer' or dataset_name == 'ogbn-products':
-        transform = RandomNodeSplit(num_train_per_class=0.6, num_val=0.2, num_test=0.2, split='train_rest')
-        dataset.graph = transform(dataset.graph)
-        dataset.train_idx = dataset.graph.train_mask
-        dataset.train_mask = dataset.graph.train_mask
-        dataset.val_idx = dataset.graph.val_mask
-        dataset.val_mask = dataset.graph.val_mask
-        dataset.test_idx = dataset.graph.test_mask
-        dataset.test_mask = dataset.graph.test_mask
-
-    return dataset
-
-
-
-from utils.dataset import load_dataset, load_large_dataset
-from torch_geometric.utils import to_undirected, add_self_loops
+# === experiment args === (TODO: make them a arg list when needed including hyperparameters)
+folder_name = 'mup_ogbn_products_mini_batch2'
 # dataset_name = 'ogbn-arxiv'
 dataset_name = 'ogbn-products'
 # dataset_name = 'cora'
@@ -116,30 +69,11 @@ print(f"# Train: {len(dataset.train_mask)}")
 print(f"# Val: {len(dataset.val_mask)}")
 print(f"# Test: {len(dataset.test_mask)}")
 
-import torch
-import torch.nn.functional as F
-import matplotlib.pyplot as plt
-from torch_geometric.datasets import Planetoid
-from torch_geometric.transforms import Compose, NormalizeFeatures, RandomNodeSplit
-import random
-import numpy as np
-import math
-
-def set_seed(seed=42):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-
-set_seed(42)
 
 # === Setup ===
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# === Dataset ===
-# dataset = Planetoid(root='/tmp/Cora', name='Cora')
-# data = dataset[0].to(device)
 
 # === Hyperparameters ===
 # widths = [128, 256, 512, 1024]
@@ -151,6 +85,7 @@ depths = [0,1,2,4,8,16]
 # lrs    = np.linspace(-11, 1, 15)   # add/remove as you like
 lrs = np.linspace(-10, -3, 10) # add/remove as you like
 
+sgc_k = 2
 num_epochs = 10
 log_every = 10
 
@@ -160,13 +95,10 @@ results = {}
 # === Define loss function ===
 criterion = torch.nn.CrossEntropyLoss()
 
-sgc_k = 2
-from torch_geometric.loader import RandomNodeLoader, NeighborLoader
-import torch_geometric.transforms as T
+# === Mini-batch Data loaders ===
 train_loader = None
 val_loader = None
 test_loader = None
-# if dataset_name == 'ogbn-products':
 if True:
     # Set split indices to masks.
     if dataset.train_mask.dtype != torch.bool: 
@@ -257,6 +189,8 @@ transform = T.Compose([T.ToDevice(device), T.ToSparseTensor()])
 
 
 # === Training function ===
+
+#### full batch train #####
 # def train(model, data, dataset, optimizer):
 #     model.train()
 #     optimizer.zero_grad()
@@ -266,6 +200,8 @@ transform = T.Compose([T.ToDevice(device), T.ToSparseTensor()])
 #     loss.backward()
 #     optimizer.step()
 #     return loss.item()
+#### END full batch train #####
+
 
 # === Mini-batch training ===
 # def train(model, train_loader, optimizer, device):
@@ -290,10 +226,10 @@ transform = T.Compose([T.ToDevice(device), T.ToSparseTensor()])
 #         total_examples += num_seeds
 
 #     return total_loss / total_examples
+# === END Mini-batch training ===
 
-##########Profiling version USE when needed###########
-import time
 
+##########Profiling version train USE when needed###########
 def train(model, train_loader, optimizer, device):
     start = time.perf_counter()
     model.train()
@@ -353,7 +289,7 @@ def train(model, train_loader, optimizer, device):
         f"train total time: {(end-start):.4f} s | "
     )
     return total_loss / total_examples
-##########Profiling version###########
+##########END Profiling version train ###########
 
 #### plain mini-batch version #####
 # === Evaluation function ===
@@ -370,6 +306,8 @@ def train(model, train_loader, optimizer, device):
 #         result[f"{split}_loss"] = loss
 #         result[f"{split}_acc"] = acc
 #     return result
+#### END plain mini-batch version #####
+
 
 ##### profile mini-batch version######
 @torch.no_grad()
@@ -449,6 +387,8 @@ def evaluate(model, loaders, device):
     print(f"evaluate total time: {(end_total - start_total):.4f}s")
 
     return results
+##### END profile mini-batch version######
+
 
 #### full batch evaluation #####
 # @torch.no_grad()
@@ -471,129 +411,17 @@ def evaluate(model, loaders, device):
 #     )
 
 #     return result
-#### full batch evaluation #####
+#### END full batch evaluation #####
 
 
 # === Main experiment loop ===
-rows = []
-folder_name = 'mup_ogbn_products_mini_batch'
+train_func = partial(train, train_loader=train_loader, device=device)
+evaluate_func = partial(evaluate, loaders={'train' : train_loader, 'val' : val_loader, 'test' : test_loader}, device=device)
+rows = train_loop(widths, depths, lrs, input_dim=d, output_dim=dataset.num_classes, K=sgc_k, device=device,
+                  num_epochs=num_epochs, log_every=log_every, train_func=train_func, evaluate_func=evaluate_func)
 
-for width in widths:
-    for depth in depths:
-        for log2lr in lrs:
-            lr = 2**log2lr
-            key = f"width={width} depth={depth} lr={lr:g}"
-            print(f"\n=== Training {key} ===")
-
-            model = MuGNN(
-                input_dim=d, # dataset.num_node_features
-                hidden_dim=width,
-                output_dim=dataset.num_classes, # dataset.num_classes
-                num_fc_layers=depth, # depth = num_fc_layers + 1; actually, so we minus one here
-                K=sgc_k).to(device)
-
-            optimizer = make_mup_optimizer(model, base_lr=lr, opt="adam", weight_decay=0.0)
-
-            # Best trackers (value + epoch)
-            best = {
-                "train_loss": (math.inf, -1),
-                "val_loss":   (math.inf, -1),
-                "test_loss":  (math.inf, -1),
-                "train_acc":  (0.0, -1),
-                "val_acc":    (0.0, -1),
-                "test_acc":   (0.0, -1),
-            }
-
-            for epoch in range(1, num_epochs + 1):
-                # train_loss = train(model, data, dataset, optimizer)
-                train_loss = train(model, train_loader, optimizer, device)
-
-                if epoch == 1 or epoch % log_every == 0 or epoch == num_epochs:
-                    # m = evaluate(model, data, dataset) # result dict
-                    m = evaluate(model, {'train' : train_loader, 'val' : val_loader, 'test' : test_loader}, device) # result dict
-
-                    # update bests
-                    for k in ["train_loss", "val_loss", "test_loss"]:
-                        if m[k] < best[k][0]:
-                            best[k] = (m[k], epoch)
-                    for k in ["train_acc", "val_acc", "test_acc"]:
-                        if m[k] > best[k][0]:
-                            best[k] = (m[k], epoch)
-
-                    print(
-                        f"Epoch {epoch:03d} | "
-                        f"Train: loss {m['train_loss']:.4f}, acc {m['train_acc']:.4f}, best {best['train_acc'][0]:.4f} (ep {best['train_acc'][1]}) | "
-                        f"Val: loss {m['val_loss']:.4f}, acc {m['val_acc']:.4f}, best {best['val_acc'][0]:.4f} (ep {best['val_acc'][1]}) | "
-                        f"Test: loss {m['test_loss']:.4f}, acc {m['test_acc']:.4f}, best {best['test_acc'][0]:.4f} (ep {best['test_acc'][1]})"
-                    )
-
-
-            # store a row per run
-            rows.append({
-                "width": width,
-                "depth": depth,
-                "lr": lr,
-                "best_train_loss": best["train_loss"][0],
-                "best_train_loss_epoch": best["train_loss"][1],
-                "best_val_loss": best["val_loss"][0],
-                "best_val_loss_epoch": best["val_loss"][1],
-                "best_test_loss": best["test_loss"][0],
-                "best_test_loss_epoch": best["test_loss"][1],
-                "best_train_acc": best["train_acc"][0],
-                "best_train_acc_epoch": best["train_acc"][1],
-                "best_val_acc": best["val_acc"][0],
-                "best_val_acc_epoch": best["val_acc"][1],
-                "best_test_acc": best["test_acc"][0],
-                "best_test_acc_epoch": best["test_acc"][1],
-            })
-
-
-import pandas as pd
-from utils.timestamp import get_timestamp
-
-# record full experiment results
-df = pd.DataFrame(rows).sort_values(["depth", "width", "lr"]).reset_index(drop=True)
-csv_path = f"{folder_name}/{dataset_name}_all_runs_{get_timestamp()}.csv"
-df.to_csv(csv_path, index=False)
-
-print(f"\nSaved all experiment runs to: {csv_path}")
-print(df.head())
-
-# aggregate results among (width, depth) pairs, and record the results
-# ============================================================
-# Aggregate best accuracies across LRs
-# ============================================================
-summary_df = (
-    df.groupby(["depth", "width"], as_index=False)
-      .agg({
-          "best_train_acc": "max",
-          "best_val_acc": "max",
-          "best_test_acc": "max",
-          "best_train_loss": "min",
-          "best_val_loss": "min",
-          "best_test_loss": "min"
-      })
-      .sort_values(["depth", "width"])
-)
-
-# print("\n=== BEST ACCURACY SUMMARY (per width, depth) ===")
-# print(summary_df.to_string(index=False))
-
-# Save to CSV
-summary_path = f'{folder_name}/{dataset_name}_best_accuracy_summary_{get_timestamp()}.csv'
-summary_df.to_csv(summary_path, index=False)
-
-
-
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-import numpy as np
-from matplotlib.lines import Line2D
-import seaborn as sns
-from utils.timestamp import get_timestamp
-from mup_impl.plot_utils import plot_best_metric, plot_loss
-import mup_impl.plot_utils as pu
+# Save Results
+save_results(rows, folder_name, dataset_name)
 
 pu.folder_name = folder_name
 pu.dataset_name = dataset_name
