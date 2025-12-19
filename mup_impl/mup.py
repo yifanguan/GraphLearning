@@ -122,6 +122,7 @@ class MuGNN(nn.Module):
         super().__init__()
         self.act = {"relu": F.relu, "gelu": F.gelu, "tanh": torch.tanh}.get(activation, F.relu)
 
+        self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         # SGC: linear transform after K-step propagation
         self.sgc = SGConv(in_channels=input_dim, out_channels=hidden_dim, K=K, cached=cached, bias=bias)
@@ -142,16 +143,21 @@ class MuGNN(nn.Module):
         # Readout (final linear)
         self.readout = nn.Linear(hidden_dim, output_dim, bias=bias)
     
-        # init_mup_readout(self.readout) # option1
+        init_mup_readout(self.readout) # option1
         # all zeros initialization tricks
-        nn.init.zeros_(self.readout.weight) #option2
+        # nn.init.zeros_(self.readout.weight) #option2
 
         # simple residual scaling like your draft
         # branch multiplier in tp6
-        self.multiplier = 3.0
+        self.multiplier = 1.0
         self.scale = (self.multiplier / math.sqrt(num_fc_layers)) if (num_fc_layers > 0 and residual_scale is None) else (residual_scale or 1.0)
 
     def forward(self, x, edge_index):
+        # we want to make sure x_i has order of 1 throughout the experiment,
+        # if a data has l2 normalization applied (i.e. initially not order of 1),
+        # then we need to scale it up by sqrt of input_dim. Otherwise, we need to adjust
+        # input weights initialization and input layer learning rate.
+        x = x * math.sqrt(self.input_dim) # optional: depends on data distribution
         x = self.sgc(x, edge_index)
         for lin in self.fcs:
             x_in = x

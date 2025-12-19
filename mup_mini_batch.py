@@ -13,7 +13,7 @@ from torch_geometric.transforms import Compose, NormalizeFeatures, RandomNodeSpl
 import random
 import numpy as np
 from mup_impl.mup import init_mup_input, init_mup_hidden, init_mup_readout, mup_param_groups, MuGNN, make_mup_optimizer
-from mup_impl.train import train_val_test_mask_helper, train_loop
+from mup_impl.train import train_val_test_mask_helper, balance_dataset, train_loop
 from utils.dataset import load_dataset, load_large_dataset
 from torch_geometric.utils import to_undirected, add_self_loops
 from torch_geometric.loader import RandomNodeLoader, NeighborLoader
@@ -36,9 +36,9 @@ def set_seed(seed=42):
 set_seed(42)
 
 # === experiment args === (TODO: make them a arg list when needed including hyperparameters)
-folder_name = 'mup_ogbn_products_mini_batch2'
-# dataset_name = 'ogbn-arxiv'
-dataset_name = 'ogbn-products'
+folder_name = 'mup_ogbn_arxiv_mini_batch_sgd_new_version'
+dataset_name = 'ogbn-arxiv'
+# dataset_name = 'ogbn-products'
 # dataset_name = 'cora'
 # dataset_name = 'citeseer'
 # dataset_name = 'wikics'
@@ -54,8 +54,12 @@ print(f'Dataset: {dataset_name}, num nodes: {n}, num node features: {d}, num cla
 dataset.graph.edge_index = to_undirected(dataset.graph.edge_index)
 dataset.graph.edge_index, _ = add_self_loops(dataset.graph.edge_index, num_nodes=n)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-data = dataset.graph
 # data = data.to(device) # Nov 9th, not necessary because batch will be moved to gpu
+
+# balance dataset, only select data class with enough data
+balance_dataset(dataset, K=10)
+
+data = dataset.graph
 
 train_val_test_mask_helper(dataset_name, dataset)
 
@@ -80,14 +84,14 @@ print(f"Using device: {device}")
 widths = [256]
 # depths = [1,2,4,6,8,10]
 # [0,1,2,4,8,16]
-depths = [0,1,2,4,8,16]
+depths = [1,2,4,8,16]
 # depths = [4]
-# lrs    = np.linspace(-11, 1, 15)   # add/remove as you like
-lrs = np.linspace(-10, -3, 10) # add/remove as you like
+lrs    = np.linspace(-11, 1, 9)   # add/remove as you like
+# lrs = np.linspace(-8, 1, 10) # add/remove as you like
 
 sgc_k = 2
 num_epochs = 10
-log_every = 10
+log_every = 2
 
 # === Placeholder for results ===
 results = {}
@@ -217,7 +221,7 @@ transform = T.Compose([T.ToDevice(device), T.ToSparseTensor()])
 #         # only first batch_size nodes are seeds in NeighborLoader
 #         # seed_nodes = batch.n_id[:batch.batch_size]
 #         num_seeds = batch.input_id.numel()
-#         loss = criterion(out[:num_seeds], batch.y[:num_seeds])
+#         loss = criterion(out[:num_seeds], batch.y[:num_seeds].view(-1))
 
 #         loss.backward()
 #         optimizer.step()
@@ -264,7 +268,7 @@ def train(model, train_loader, optimizer, device):
 
         out = model(batch.x, batch.edge_index)
         num_seeds = batch.input_id.numel()
-        loss = criterion(out[:num_seeds], batch.y[:num_seeds])
+        loss = criterion(out[:num_seeds], batch.y[:num_seeds].view(-1))
 
         optimizer.zero_grad()
         loss.backward()
@@ -356,7 +360,7 @@ def evaluate(model, loaders, device):
             num_seeds = batch.input_id.numel()
             logits = out[:num_seeds]
             preds = logits.argmax(dim=1)
-            labels = batch.y[:num_seeds]
+            labels = batch.y[:num_seeds].view(-1)
 
             loss = criterion(logits, labels)
             total_loss += loss.item() * num_seeds

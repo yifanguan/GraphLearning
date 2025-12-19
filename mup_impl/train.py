@@ -1,5 +1,7 @@
 from torch_geometric.transforms import Compose, NormalizeFeatures, RandomNodeSplit
 import math
+import torch
+from torch_geometric.utils import subgraph
 from .mup import MuGNN, make_mup_optimizer
 
 def train_val_test_mask_helper(dataset_name, dataset):
@@ -20,6 +22,86 @@ def train_val_test_mask_helper(dataset_name, dataset):
 
     return dataset
 
+def class_counts(y, num_classes):
+    """
+    Count number of nodes per class.
+    y: shape [N] or [N,1]
+    return: [num_classes] tensor on same device
+    """
+    y = y.view(-1)
+    return torch.bincount(y, minlength=num_classes)
+
+
+def balance_dataset(dataset, K=10):
+    """
+    Keep only top-K most frequent classes.
+    Modifies dataset.graph in-place.
+    """
+    data = dataset.graph
+    device = data.x.device
+
+    # --------------------------------------------------
+    # 1. count class frequencies
+    # --------------------------------------------------
+    counts = class_counts(data.y, dataset.num_classes)
+
+    # --------------------------------------------------
+    # 2. select top-K classes
+    # --------------------------------------------------
+    selected_classes = torch.topk(counts, K).indices
+
+    print("[balance_dataset]")
+    print("  selected classes:", selected_classes.tolist())
+    print("  counts:", counts[selected_classes].tolist())
+
+    # --------------------------------------------------
+    # 3. node mask & subset
+    # --------------------------------------------------
+    y = data.y.view(-1)
+    node_mask = torch.isin(y, selected_classes)
+    subset = node_mask.nonzero(as_tuple=False).view(-1)
+
+    # --------------------------------------------------
+    # 4. subgraph extraction (CRITICAL)
+    # --------------------------------------------------
+    edge_index, _ = subgraph(
+        subset,
+        data.edge_index,
+        relabel_nodes=True,
+        num_nodes=data.num_nodes,
+    )
+
+    # --------------------------------------------------
+    # 5. remap labels -> [0 .. K-1]
+    # --------------------------------------------------
+    label_map = -torch.ones(
+        int(y.max().item()) + 1,
+        dtype=torch.long,
+        device=device,
+    )
+    label_map[selected_classes] = torch.arange(K, device=device)
+
+    # --------------------------------------------------
+    # 6. apply filtering
+    # --------------------------------------------------
+    data.x = data.x[subset]
+    data.y = label_map[y[subset]].view(-1, 1)   # keep OGB-style [N,1]
+    data.edge_index = edge_index
+    data.num_nodes = data.x.size(0)
+
+    # --------------------------------------------------
+    # 7. update metadata
+    # --------------------------------------------------
+    dataset.num_classes = K
+
+    print(
+        f"  result: {data.num_nodes} nodes, "
+        f"{data.edge_index.size(1)} edges, "
+        f"{dataset.num_classes} classes"
+    )
+
+    return dataset
+
 def train_loop(widths, depths, lrs, input_dim, output_dim, K, device,
                           num_epochs, log_every, train_func, evaluate_func):
     rows = []
@@ -37,7 +119,7 @@ def train_loop(widths, depths, lrs, input_dim, output_dim, K, device,
                     num_fc_layers=depth, # depth = num_fc_layers + 1; actually, so we minus one here
                     K=K).to(device)
 
-                optimizer = make_mup_optimizer(model, base_lr=lr, opt="sgd", weight_decay=0.0, momentum=0)
+                optimizer = make_mup_optimizer(model, base_lr=lr, opt="sgd", weight_decay=0.0, momentum=0.9)
 
                 # Best trackers (value + epoch)
                 best = {
