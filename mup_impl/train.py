@@ -3,6 +3,7 @@ import math
 import torch
 from torch_geometric.utils import subgraph
 from .mup import MuGNN, make_mup_optimizer
+import numpy as np
 
 def train_val_test_mask_helper(dataset_name, dataset):
     '''
@@ -103,7 +104,7 @@ def balance_dataset(dataset, K=10):
     return dataset
 
 def train_loop(widths, depths, lrs, input_dim, output_dim, K, device,
-                          num_epochs, log_every, train_func, evaluate_func):
+                num_epochs, log_every, train_func, evaluate_func):
     rows = []
     for width in widths:
         for depth in depths:
@@ -119,7 +120,7 @@ def train_loop(widths, depths, lrs, input_dim, output_dim, K, device,
                     num_fc_layers=depth, # depth = num_fc_layers + 1; actually, so we minus one here
                     K=K).to(device)
 
-                optimizer = make_mup_optimizer(model, base_lr=lr, opt="sgd", weight_decay=0.0, momentum=0.9)
+                optimizer = make_mup_optimizer(model, base_lr=lr, opt="sgd", weight_decay=0.0, momentum=0)
 
                 # Best trackers (value + epoch)
                 best = {
@@ -167,6 +168,122 @@ def train_loop(widths, depths, lrs, input_dim, output_dim, K, device,
                             f"Train: loss {m['train_loss']:.4f}, acc {m['train_acc']:.4f}, best {best['train_acc'][0]:.4f} (ep {best['train_acc'][1]}) | "
                             f"Val: loss {m['val_loss']:.4f}, acc {m['val_acc']:.4f}, best {best['val_acc'][0]:.4f} (ep {best['val_acc'][1]}) | "
                             f"Test: loss {m['test_loss']:.4f}, acc {m['test_acc']:.4f}, best {best['test_acc'][0]:.4f} (ep {best['test_acc'][1]})"
+                        )
+
+                # last epoch metrics
+                last_m = evaluate_func(model=model)
+
+                # store a row per run
+                rows.append({
+                    "width": width,
+                    "depth": depth,
+                    "lr": lr,
+                    "best_train_loss": best["train_loss"][0],
+                    "best_train_loss_epoch": best["train_loss"][1],
+                    "best_val_loss": best["val_loss"][0],
+                    "best_val_loss_epoch": best["val_loss"][1],
+                    "best_test_loss": best["test_loss"][0],
+                    "best_test_loss_epoch": best["test_loss"][1],
+                    "best_train_acc": best["train_acc"][0],
+                    "best_train_acc_epoch": best["train_acc"][1],
+                    "best_val_acc": best["val_acc"][0],
+                    "best_val_acc_epoch": best["val_acc"][1],
+                    "best_test_acc": best["test_acc"][0],
+                    "best_test_acc_epoch": best["test_acc"][1],
+                    "train_loss": loss_dict['train_loss'],
+                    "val_loss": loss_dict['val_loss'],
+                    "test_loss": loss_dict['test_loss'],
+                    "last_train_loss": last_m["train_loss"],
+                    "last_val_loss": last_m["val_loss"],
+                    "last_test_loss": last_m["test_loss"],
+                    "last_train_acc": last_m["train_acc"],
+                    "last_val_acc": last_m["val_acc"],
+                    "last_test_acc": last_m["test_acc"],
+                })
+    return rows
+
+
+
+def batch_train_loop(widths, depths, lrs, input_dim, output_dim, K, device,
+                    num_epochs, log_every, train_func, evaluate_func, train_loader):
+    rows = []
+    for width in widths:
+        for depth in depths:
+            for log2lr in lrs:
+                lr = 2**log2lr
+                key = f"width={width} depth={depth} lr={lr:g}"
+                print(f"\n=== Training {key} ===")
+
+                model = MuGNN(
+                    input_dim=input_dim, # dataset.num_node_features
+                    hidden_dim=width,
+                    output_dim=output_dim, # dataset.num_classes
+                    num_fc_layers=depth, # depth = num_fc_layers + 1; actually, so we minus one here
+                    K=K).to(device)
+
+                optimizer = make_mup_optimizer(model, base_lr=lr, opt="sgd", weight_decay=0.0, momentum=0)
+
+                # Best trackers (value + epoch)
+                best = {
+                    "train_loss": (math.inf, -1),
+                    "val_loss":   (math.inf, -1),
+                    "test_loss":  (math.inf, -1),
+                    "train_acc":  (0.0, -1),
+                    "val_acc":    (0.0, -1),
+                    "test_acc":   (0.0, -1),
+                }
+
+                # loss trackers
+                # we evaluate val and test every log_every epoch, so record these loss point for val and test loss plot
+                # we evaluate train every epoch (for best train loss, we get its value from evaluate step, the train loss plot is
+                # diverged from this observation for more data points purpose) change this part if needed.
+                loss_dict = {
+                    "train_loss": [],
+                    "val_loss": [],
+                    "test_loss": []
+                }
+
+                # ---------------------------
+                # Batch-level training
+                # ---------------------------
+                global_step = 0
+                max_steps = num_epochs * len(train_loader)
+                train_iter = iter(train_loader)
+
+                while global_step < max_steps:
+                    global_step += 1
+                    # ---- fetch next batch ----
+                    try:
+                        batch = next(train_iter)
+                    except StopIteration:
+                        train_iter = iter(train_loader)
+                        batch = next(train_iter)
+
+                    train_loss, _ = train_func(model=model, optimizer=optimizer, batch=batch)
+                    loss_dict['train_loss'].append((train_loss, global_step))
+
+                    if global_step == 1 or global_step % log_every == 0 or global_step == max_steps:
+                        m = evaluate_func(model=model) # result dict
+                        # mini-batch original code: left here for example visualization
+                        # m = evaluate(model, {'train' : train_loader, 'val' : val_loader, 'test' : test_loader}, device) # result dict
+
+                        # update bests
+                        for k in ["train_loss", "val_loss", "test_loss"]:
+                            if m[k] < best[k][0]:
+                                best[k] = (m[k], global_step)
+                        for k in ["train_acc", "val_acc", "test_acc"]:
+                            if m[k] > best[k][0]:
+                                best[k] = (m[k], global_step)
+
+                        # record loss
+                        loss_dict['val_loss'].append((m['val_loss'], global_step))
+                        loss_dict['test_loss'].append((m['test_loss'], global_step))
+
+                        print(
+                            f"Step {global_step:06d} | "
+                            f"Train: loss {m['train_loss']:.4f}, acc {m['train_acc']:.4f}, best {best['train_acc'][0]:.4f} (step {best['train_acc'][1]}) | "
+                            f"Val: loss {m['val_loss']:.4f}, acc {m['val_acc']:.4f}, best {best['val_acc'][0]:.4f} (step {best['val_acc'][1]}) | "
+                            f"Test: loss {m['test_loss']:.4f}, acc {m['test_acc']:.4f}, best {best['test_acc'][0]:.4f} (step {best['test_acc'][1]})"
                         )
 
                 # last epoch metrics

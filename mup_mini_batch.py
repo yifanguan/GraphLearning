@@ -13,7 +13,7 @@ from torch_geometric.transforms import Compose, NormalizeFeatures, RandomNodeSpl
 import random
 import numpy as np
 from mup_impl.mup import init_mup_input, init_mup_hidden, init_mup_readout, mup_param_groups, MuGNN, make_mup_optimizer
-from mup_impl.train import train_val_test_mask_helper, balance_dataset, train_loop
+from mup_impl.train import train_val_test_mask_helper, balance_dataset, train_loop, batch_train_loop
 from utils.dataset import load_dataset, load_large_dataset
 from torch_geometric.utils import to_undirected, add_self_loops
 from torch_geometric.loader import RandomNodeLoader, NeighborLoader
@@ -36,7 +36,7 @@ def set_seed(seed=42):
 set_seed(42)
 
 # === experiment args === (TODO: make them a arg list when needed including hyperparameters)
-folder_name = 'mup_ogbn_arxiv_mini_batch_sgd_new_version'
+folder_name = 'mup_ogbn_arxiv_mini_batch_sgd_new_version_momentum_0_lr_adjustment_all_zeros'
 dataset_name = 'ogbn-arxiv'
 # dataset_name = 'ogbn-products'
 # dataset_name = 'cora'
@@ -44,7 +44,6 @@ dataset_name = 'ogbn-arxiv'
 # dataset_name = 'wikics'
 dataset = load_dataset(data_dir='data', dataset_name=dataset_name)
 
-display_step = 10
 
 d = dataset.graph.x.shape[1]
 c = dataset.label.max().item() + 1
@@ -92,6 +91,8 @@ lrs    = np.linspace(-11, 1, 9)   # add/remove as you like
 sgc_k = 2
 num_epochs = 10
 log_every = 2
+# 尝试，查看温和的趋势
+evaluate_based_on_weight_update_steps = False # usually use with small number of epochs (e.g. 1)
 
 # === Placeholder for results ===
 results = {}
@@ -295,6 +296,25 @@ def train(model, train_loader, optimizer, device):
     return total_loss / total_examples
 ##########END Profiling version train ###########
 
+
+################Train one batch at a time ############
+def train_one_batch(model, batch, optimizer, device):
+    model.train()
+
+    batch = batch.to(device)
+    out = model(batch.x, batch.edge_index)
+
+    num_seeds = batch.input_id.numel()
+    loss = criterion(out[:num_seeds], batch.y[:num_seeds].view(-1))
+
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+    return loss.item(), num_seeds
+################END Train on batch ####################
+
+
 #### plain mini-batch version #####
 # === Evaluation function ===
 # @torch.no_grad()
@@ -421,8 +441,15 @@ def evaluate(model, loaders, device):
 # === Main experiment loop ===
 train_func = partial(train, train_loader=train_loader, device=device)
 evaluate_func = partial(evaluate, loaders={'train' : train_loader, 'val' : val_loader, 'test' : test_loader}, device=device)
-rows = train_loop(widths, depths, lrs, input_dim=d, output_dim=dataset.num_classes, K=sgc_k, device=device,
-                  num_epochs=num_epochs, log_every=log_every, train_func=train_func, evaluate_func=evaluate_func)
+
+if evaluate_based_on_weight_update_steps:
+    train_func = partial(train_one_batch, device=device)
+    rows = batch_train_loop(widths, depths, lrs, input_dim=d, output_dim=dataset.num_classes, K=sgc_k, device=device,
+                num_epochs=num_epochs, log_every=log_every, train_func=train_func, evaluate_func=evaluate_func,
+                train_loader=train_loader)
+else:
+    rows = train_loop(widths, depths, lrs, input_dim=d, output_dim=dataset.num_classes, K=sgc_k, device=device,
+                    num_epochs=num_epochs, log_every=log_every, train_func=train_func, evaluate_func=evaluate_func)
 
 # Save Results
 save_results(rows, folder_name, dataset_name)
