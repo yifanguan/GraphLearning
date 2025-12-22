@@ -12,9 +12,14 @@ oversmoothing_main.py: over smoothing experiment (magnitude, etc)
 
 energy_loss_main.py: energy regularization experiments
 
-# Mup && SP (all use Adam for now)
+# Mup && SP (SGD optimizer by default)
 mup_precise_layer.py: full-batch mup experiment
 mup_mini_batch.py: mini-batch mup experiment
 
 standard_experiment.py: full-batch SP experiment
 standard_mini_batch.py: standard parameterization mini-batch experiment
+
+Note: tune the (1) experiment args and (2) hyperparameters when needed
+Create a folder before running experiments to save results
+
+example run: python mup_mini_batch.py
