@@ -38,6 +38,10 @@ set_seed(42)
 # === experiment args === (TODO: make them a arg list when needed including hyperparameters)
 folder_name = 'mup_ogbn_arxiv_mini_batch_sgd_new_version_momentum_0_lr_adjustment_all_zeros'
 dataset_name = 'ogbn-arxiv'
+# 尝试，查看温和的趋势
+evaluate_based_on_weight_update_steps = False # usually use with small number of epochs (e.g. 1)
+# === experiment args END ===
+
 # dataset_name = 'ogbn-products'
 # dataset_name = 'cora'
 # dataset_name = 'citeseer'
@@ -91,8 +95,8 @@ lrs    = np.linspace(-11, 1, 9)   # add/remove as you like
 sgc_k = 2
 num_epochs = 10
 log_every = 2
-# 尝试，查看温和的趋势
-evaluate_based_on_weight_update_steps = False # usually use with small number of epochs (e.g. 1)
+# === Hyperparameters END ===
+
 
 # === Placeholder for results ===
 results = {}
